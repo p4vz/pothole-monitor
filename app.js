@@ -27,7 +27,7 @@
   var currentJolt = 0, peakWindow = 0;
   var lastReadoutPaint = 0, lastDetectMsg = "–";
 
-  var driving = false, lastDetectionTs = 0;
+  var driving = false, lastDetectionTs = 0, autoCount = 0;
   var buffer = [], flushTimer = null, wakeLock = null;
   var perms = { motion: "unknown", geo: "unknown", wake: "unknown" };
 
@@ -271,7 +271,10 @@
     var rec = makeRecord(peak, severityFromAccel(peak), "auto", speed);
     addLocal(rec);
     buffer.push(rec);
+    autoCount++;
     lastDetectMsg = rec.severity + " (" + peak.toFixed(1) + ")";
+    flashDetection(rec.severity);
+    toast("🕳️ Pothole auto-logged — " + rec.severity + " (" + peak.toFixed(1) + " m/s²)");
     paintReadout(true);
     if (buffer.length >= CONFIG.BATCH_FLUSH_COUNT) flushBuffer();
   }
@@ -293,21 +296,22 @@
     driving = !driving;
     var btn = document.getElementById("drivingBtn");
     if (driving) {
+      autoCount = 0;
       if (!motionAttached) requestMotion();
       startWatch();
       acquireWake();
       btn.classList.add("on");
-      btn.textContent = "🚗 Driving mode: ON";
+      btn.textContent = "🚗 Reporting mode: ON";
       scheduleFlush();
-      toast("Driving mode on — auto-detecting potholes");
+      toast("Reporting mode on — watching for jolts, auto-logging potholes");
     } else {
       stopWatch();
       releaseWake();
       btn.classList.remove("on");
-      btn.textContent = "🚗 Driving mode: off";
+      btn.textContent = "🚗 Reporting mode: off";
       clearTimeout(flushTimer);
       flushBuffer();
-      toast("Driving mode off");
+      toast("Reporting mode off" + (autoCount ? " — logged " + autoCount + " this trip" : ""));
     }
     paintReadout(true);
   }
@@ -477,8 +481,21 @@
     if (!el) return;
     var spd = lastFix && lastFix.speed != null ? Math.round(lastFix.speed * 3.6) + " km/h" : "–";
     el.textContent = "jolt: " + currentJolt.toFixed(1) + " • speed: " + spd +
-      " • " + (driving ? "🟢 driving" : "⚪ idle") +
+      " • " + (driving ? "🟢 watching" : "⚪ idle") +
+      " • logged: " + autoCount +
       " • last: " + lastDetectMsg;
+  }
+
+  // Brief full-screen colour pulse so a caught jolt is obvious while driving.
+  function flashDetection(sev) {
+    var el = document.getElementById("flash");
+    if (!el) return;
+    el.style.background = SEV_COLOR[sev] || "#e03131";
+    el.style.transition = "none";
+    el.style.opacity = "0.55";
+    void el.offsetWidth;            // force reflow so the fade-out animates
+    el.style.transition = "opacity 0.6s ease-out";
+    el.style.opacity = "0";
   }
   var toastTimer = null;
   function toast(msg) {
