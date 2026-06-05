@@ -5,7 +5,7 @@
 // runtime and kept only in your browser's localStorage.
 window.CONFIG = {
   // --- Google Maps ---
-  MAPS_API_KEY: "YOUR_GOOGLE_MAPS_API_KEY",
+  MAPS_API_KEY: "AIzaSyBpgX1Ce6PtJGiDAKwLXJgGTYoahFKFREw",
 
   // --- GitHub "database" (a JSON file committed to this repo) ---
   REPO_OWNER: "p4vz",
