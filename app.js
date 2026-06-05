@@ -235,16 +235,27 @@
   function onMotion(e) {
     var a = e.accelerationIncludingGravity;
     if (!a || a.x == null) return;
+    // Seed the gravity estimate from the first reading so the low-pass doesn't
+    // ramp up from zero — that warm-up transient would otherwise fire a spurious
+    // detection (and, via the cooldown, mask a real jolt) right after enabling.
+    if (!baselineInit) {
+      gravity.x = a.x; gravity.y = a.y; gravity.z = a.z;
+      baselineInit = true;
+      return;
+    }
     // Low-pass to track gravity; the residual is the jolt (linear acceleration).
     var alpha = 0.8;
     gravity.x = alpha * gravity.x + (1 - alpha) * a.x;
     gravity.y = alpha * gravity.y + (1 - alpha) * a.y;
     gravity.z = alpha * gravity.z + (1 - alpha) * a.z;
-    if (!baselineInit) { baselineInit = true; return; }
     var dx = a.x - gravity.x, dy = a.y - gravity.y, dz = a.z - gravity.z;
     currentJolt = Math.sqrt(dx * dx + dy * dy + dz * dz);
     if (currentJolt > peakWindow) peakWindow = currentJolt;
     if (driving) maybeDetect();
+    // Once the jolt subsides, clear the running peak so the next event is rated
+    // on its own — a bump suppressed by the cooldown must not inflate the
+    // severity of the following report.
+    if (currentJolt < CONFIG.JOLT_THRESHOLD) peakWindow = 0;
     paintReadout(false);
   }
 
