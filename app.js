@@ -1,8 +1,8 @@
 /* Pavement Holes — pothole reporter.
  * Captures GPS + accelerometer, derives severity from the jolt, shows reports on
- * a Google Map, and persists them to a JSON file in this repo via the GitHub
- * Contents API. Viewing needs nothing; reporting needs sensor permissions and a
- * GitHub token kept only in localStorage. */
+ * a Leaflet / OpenStreetMap map, and persists them to a JSON file in this repo
+ * via the GitHub Contents API. Viewing needs nothing (no API key); reporting
+ * needs sensor permissions and a GitHub token kept only in localStorage. */
 (function () {
   "use strict";
   var CONFIG = window.CONFIG;
@@ -13,9 +13,9 @@
   var TOKEN_KEY = "ph_gh_token";
 
   // ---- state ----
-  var map = null, infoWindow = null, userMarker = null;
+  var map = null, userMarker = null;
   var reports = [];                 // all records
-  var markers = new Map();          // id -> google.maps.Marker
+  var markers = new Map();          // id -> L.circleMarker
   var activeFilters = new Set(["small", "medium", "large"]);
 
   var lastFix = null;               // {lat,lng,accuracy,speed}
@@ -32,30 +32,19 @@
   var perms = { motion: "unknown", geo: "unknown", wake: "unknown" };
 
   // =====================================================================
-  // Google Maps bootstrap
+  // Leaflet / OpenStreetMap bootstrap (no API key required)
   // =====================================================================
-  function loadGoogleMaps() {
-    var s = document.createElement("script");
-    s.src = "https://maps.googleapis.com/maps/api/js?key=" +
-      encodeURIComponent(CONFIG.MAPS_API_KEY) + "&callback=initMap&v=quarterly";
-    s.async = true; s.defer = true;
-    s.onerror = function () { toast("Failed to load Google Maps"); loadReports(); };
-    document.head.appendChild(s);
-  }
-  window.gm_authFailure = function () {
-    toast("Google Maps auth failed — check the API key / referrer restriction");
-  };
-
   function initMap() {
-    map = new google.maps.Map(document.getElementById("map"), {
-      center: { lat: 51.5074, lng: -0.1278 }, zoom: 13,
-      mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
-    });
-    infoWindow = new google.maps.InfoWindow();
+    if (typeof L === "undefined") { toast("Failed to load the map library"); loadReports(); return; }
+    map = L.map("map", { zoomControl: false }).setView([51.5074, -0.1278], 13);
+    L.control.zoom({ position: "bottomright" }).addTo(map); // keep clear of the panel
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
     loadReports();
     quietLocate();
   }
-  window.initMap = initMap;
 
   // =====================================================================
   // Data load + render (the viewer)
@@ -74,47 +63,43 @@
   }
 
   function renderAll() {
-    markers.forEach(function (m) { m.setMap(null); });
+    markers.forEach(function (m) { if (map) map.removeLayer(m); });
     markers.clear();
-    if (map && window.google) reports.forEach(addMarker);
+    if (map) reports.forEach(addMarker);
     applyFilter();
     renderList();
   }
 
   function addMarker(r) {
-    if (!map || !window.google) return;
+    if (!map) return;
     var sev = r.severity || "small";
-    var m = new google.maps.Marker({
-      position: { lat: r.lat, lng: r.lng }, map: map,
-      title: sev + " pothole",
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: SEV_SCALE[sev] || 7,
-        fillColor: SEV_COLOR[sev] || "#868e96",
-        fillOpacity: 0.85, strokeColor: "#fff", strokeWeight: 1.5,
-      },
+    var m = L.circleMarker([r.lat, r.lng], {
+      radius: SEV_SCALE[sev] || 7,
+      fillColor: SEV_COLOR[sev] || "#868e96",
+      fillOpacity: 0.85, color: "#fff", weight: 1.5,
     });
-    m.addListener("click", function () { openInfo(r, m); });
+    m.bindPopup(popupHtml(r));
+    m.addTo(map);
     markers.set(r.id, m);
   }
 
-  function openInfo(r, m) {
-    if (!infoWindow) return;
+  function popupHtml(r) {
     var when = new Date(r.timestamp).toLocaleString();
     var accel = r.peakAccel != null ? r.peakAccel.toFixed(1) + " m/s²" : "—";
     var spd = r.speed != null ? Math.round(r.speed * 3.6) + " km/h" : "—";
-    infoWindow.setContent(
-      '<div style="font:13px system-ui;min-width:170px">' +
+    return '<div style="font:13px system-ui;min-width:170px">' +
       '<b style="text-transform:capitalize">' + esc(r.severity) + "</b> pothole<br>" +
       esc(when) + "<br>jolt: " + accel + "<br>speed: " + spd +
-      "<br>source: " + esc(r.source || "?") + "</div>");
-    infoWindow.open(map, m);
+      "<br>source: " + esc(r.source || "?") + "</div>";
   }
 
   function applyFilter() {
+    if (!map) return;
     reports.forEach(function (r) {
       var m = markers.get(r.id);
-      if (m) m.setMap(activeFilters.has(r.severity) ? map : null);
+      if (!m) return;
+      if (activeFilters.has(r.severity)) { if (!map.hasLayer(m)) m.addTo(map); }
+      else if (map.hasLayer(m)) map.removeLayer(m);
     });
   }
 
@@ -133,10 +118,10 @@
         "</b> • " + esc(new Date(r.timestamp).toLocaleString()) + dist + "</span>";
       li.addEventListener("click", function () {
         var m = markers.get(r.id);
-        if (m) {
-          map.panTo(m.getPosition());
-          map.setZoom(Math.max(map.getZoom() || 16, 16));
-          openInfo(r, m);
+        if (m && map) {
+          if (!map.hasLayer(m)) m.addTo(map);
+          map.setView(m.getLatLng(), Math.max(map.getZoom() || 16, 16));
+          m.openPopup();
         }
       });
       ul.appendChild(li);
@@ -163,18 +148,15 @@
   }
 
   function setUserMarker() {
-    if (!map || !window.google || !lastFix) return;
-    var pos = { lat: lastFix.lat, lng: lastFix.lng };
+    if (!map || !lastFix) return;
+    var pos = [lastFix.lat, lastFix.lng];
     if (!userMarker) {
-      userMarker = new google.maps.Marker({
-        position: pos, map: map, title: "You", zIndex: 9999,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE, scale: 7,
-          fillColor: "#1c7ed6", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2.5,
-        },
-      });
+      userMarker = L.circleMarker(pos, {
+        radius: 7, fillColor: "#1c7ed6", fillOpacity: 1, color: "#fff", weight: 2.5,
+      }).addTo(map);
+      userMarker.bindPopup("You");
     } else {
-      userMarker.setPosition(pos);
+      userMarker.setLatLng(pos);
     }
   }
 
@@ -182,7 +164,7 @@
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(function (pos) {
       updateFix(pos); setUserMarker();
-      if (map) map.panTo({ lat: lastFix.lat, lng: lastFix.lng });
+      if (map) map.panTo([lastFix.lat, lastFix.lng]);
       renderList();
     }, function () {}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   }
@@ -191,7 +173,7 @@
     if (!navigator.geolocation) { toast("Geolocation unavailable"); return; }
     navigator.geolocation.getCurrentPosition(function (pos) {
       updateFix(pos); setUserMarker();
-      if (map) { map.panTo({ lat: lastFix.lat, lng: lastFix.lng }); map.setZoom(16); }
+      if (map) map.setView([lastFix.lat, lastFix.lng], 16);
       renderList();
     }, function (err) { toast("Location error: " + err.message); },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
@@ -202,7 +184,7 @@
       if (!navigator.geolocation) { setPerm("geo", "unavailable"); return resolve(); }
       navigator.geolocation.getCurrentPosition(function (pos) {
         updateFix(pos); setUserMarker();
-        if (map) map.panTo({ lat: lastFix.lat, lng: lastFix.lng });
+        if (map) map.panTo([lastFix.lat, lastFix.lng]);
         setPerm("geo", "granted"); resolve();
       }, function (err) {
         setPerm("geo", err.code === 1 ? "denied" : "error"); resolve();
@@ -572,7 +554,7 @@
       setStatus("Token cleared.");
     });
 
-    loadGoogleMaps();
+    initMap();
   }
 
   if (document.readyState === "loading") {

@@ -1,12 +1,8 @@
 // Configuration for the Pavement Holes (pothole) reporter.
-// NOTE: The Google Maps key is client-visible by nature — restrict it by HTTP
-// referrer (your GitHub Pages domain) and to the Maps JavaScript API in the
-// Google Cloud Console. The GitHub token is NEVER stored here; it is entered at
-// runtime and kept only in your browser's localStorage.
+// The map uses Leaflet + OpenStreetMap, which needs no API key — there is
+// nothing secret in this file. The GitHub token is NEVER stored here; it is
+// entered at runtime and kept only in your browser's localStorage.
 window.CONFIG = {
-  // --- Google Maps ---
-  MAPS_API_KEY: "AIzaSyBpgX1Ce6PtJGiDAKwLXJgGTYoahFKFREw",
-
   // --- GitHub "database" (a JSON file committed to this repo) ---
   REPO_OWNER: "p4vz",
   REPO_NAME: "test",
@@ -18,7 +14,7 @@ window.CONFIG = {
 
   // --- Detection tunables ---
   // Jolt magnitude (m/s^2, deviation from the gravity baseline) above which a
-  // pothole is registered in driving mode.
+  // pothole is registered in reporting mode.
   JOLT_THRESHOLD: 6.0,
   // Peak-jolt cutoffs (m/s^2) mapping a measured jolt to a severity bucket.
   SEVERITY_CUTOFFS: { medium: 9.0, large: 14.0 }, // < medium => small
