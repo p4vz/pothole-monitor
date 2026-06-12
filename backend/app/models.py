@@ -19,7 +19,7 @@ def _utcnow() -> datetime:
 class Device(Base):
     __tablename__ = "devices"
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     app_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
@@ -27,8 +27,8 @@ class IngestSession(Base):
     __tablename__ = "sessions"
     id: Mapped[str] = mapped_column(String, primary_key=True)
     device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"))
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sample_rate: Mapped[int | None] = mapped_column(Integer, nullable=True)
     app_version: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -50,8 +50,8 @@ class RawBatch(Base):
     n_samples: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String, default="pending", index=True)
     error: Mapped[str | None] = mapped_column(String, nullable=True)
-    received_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SegmentObservation(Base):
@@ -102,6 +102,6 @@ class SegmentState(Base):
     n_passes: Mapped[int] = mapped_column(Integer, default=0)
     n_devices: Mapped[int] = mapped_column(Integer, default=0)
 
-    first_seen: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    last_seen: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
