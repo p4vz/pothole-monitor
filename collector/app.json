@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "RoadSense",
+    "slug": "roadsense-collector",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "ios": {
+      "infoPlist": {
+        "UIBackgroundModes": ["location"],
+        "NSLocationWhenInUseUsageDescription": "Records your route to map road conditions.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Keeps logging road conditions while driving with the screen off.",
+        "NSMotionUsageDescription": "Reads motion sensors to detect road roughness and potholes."
+      }
+    },
+    "android": {
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "HIGH_SAMPLING_RATE_SENSORS"
+      ]
+    },
+    "plugins": ["expo-location", "expo-sensors"]
+  }
+}

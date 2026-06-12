@@ -1,0 +1,8 @@
+# Production extras (in addition to requirements.txt).
+# Enabled by environment, not code: Postgres/PostGIS, Redis/RQ, S3/R2.
+-r requirements.txt
+psycopg[binary]      # Postgres driver (DATABASE_URL=postgresql+psycopg://...)
+geoalchemy2          # PostGIS geometry columns + GIST index
+redis                # RQ broker
+rq                   # async worker (ROADSENSE_USE_RQ=1)
+boto3                # S3 / Cloudflare R2 object storage

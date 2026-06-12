@@ -1,0 +1,12 @@
+# RoadSense backend dependencies (local/dev — runs on SQLite + local filesystem).
+# For production swaps see README.md (Postgres/PostGIS, Redis/RQ, S3/R2).
+fastapi
+uvicorn[standard]
+numpy
+h3
+sqlalchemy
+pydantic
+pydantic-settings
+python-multipart
+httpx
+pytest

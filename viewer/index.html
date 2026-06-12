@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RoadSense — road condition map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; }
+    #map { position: absolute; inset: 0; }
+    .panel {
+      position: absolute; z-index: 1000; top: 12px; right: 12px;
+      background: #fff; padding: 12px 14px; border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.2); font-size: 13px; max-width: 230px;
+    }
+    .panel h1 { font-size: 15px; margin: 0 0 8px; }
+    .legend i { display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+      border-radius: 2px; vertical-align: -1px; }
+    .row { display: flex; align-items: center; margin: 3px 0; }
+    label { display: block; margin-top: 8px; }
+    input[type=range] { width: 100%; }
+    .muted { color: #666; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="panel">
+    <h1>RoadSense</h1>
+    <div class="legend">
+      <div class="row"><i style="background:#2ecc71"></i> smooth</div>
+      <div class="row"><i style="background:#f1c40f"></i> minor</div>
+      <div class="row"><i style="background:#e67e22"></i> rough</div>
+      <div class="row"><i style="background:#e74c3c"></i> severe</div>
+    </div>
+    <label>Min confidence: <span id="confVal">0.0</span>
+      <input id="conf" type="range" min="0" max="1" step="0.05" value="0" />
+    </label>
+    <div class="muted">Opacity ∝ confidence. Click a hex for detail.</div>
+    <div class="muted" id="status">loading…</div>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>

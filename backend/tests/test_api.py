@@ -1,0 +1,76 @@
+"""End-to-end API: device registration, gzipped upload, processing, GeoJSON read."""
+import gzip
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.db import Base, engine, init_db
+from app.main import app
+from tests.synth import make_batch
+
+
+@pytest.fixture()
+def client():
+    Base.metadata.drop_all(engine)
+    init_db()
+    with TestClient(app) as c:  # TestClient runs BackgroundTasks synchronously
+        yield c
+
+
+def _register(client) -> str:
+    r = client.post("/v1/devices", json={"app_version": "test"})
+    assert r.status_code == 200
+    return r.json()["token"]
+
+
+def test_requires_device_token(client):
+    assert client.post("/v1/batches", content=b"{}").status_code == 401
+
+
+def test_full_roundtrip_gzip_upload_to_geojson(client):
+    token = _register(client)
+    batch = make_batch("api-1", "devX", potholes=[(5.0, 8.0), (5.1, 8.0)], seed=7)
+    body = gzip.compress(json.dumps(batch).encode())
+    r = client.post(
+        "/v1/batches",
+        content=body,
+        headers={"X-Device-Token": token, "Content-Encoding": "gzip"},
+    )
+    assert r.status_code == 202
+    assert r.json()["status"] == "pending"
+
+    # Processing ran in the background task -> segments exist.
+    fc = client.get("/v1/segments").json()
+    assert fc["type"] == "FeatureCollection"
+    assert fc["features"], "expected aggregated segments after processing"
+    f = fc["features"][0]
+    assert f["geometry"]["type"] == "Polygon"
+    assert "roughness_score" in f["properties"]
+
+    # bbox around Amsterdam returns data; a far-away bbox returns nothing.
+    near = client.get("/v1/segments", params={"bbox": "4.85,52.35,4.95,52.40"}).json()
+    assert near["features"]
+    far = client.get("/v1/segments", params={"bbox": "-10,-10,-9,-9"}).json()
+    assert far["features"] == []
+
+
+def test_idempotent_reupload(client):
+    token = _register(client)
+    batch = make_batch("api-dup", "devX", seed=8)
+    body = json.dumps(batch).encode()
+    h = {"X-Device-Token": token}
+    r1 = client.post("/v1/batches", content=body, headers=h)
+    r2 = client.post("/v1/batches", content=body, headers=h)
+    assert r1.status_code == 202
+    assert r2.json()["duplicate"] is True
+
+
+def test_segment_detail_has_history(client):
+    token = _register(client)
+    batch = make_batch("api-2", "devX", potholes=[(5.0, 8.0), (5.1, 8.0)], seed=9)
+    client.post("/v1/batches", content=json.dumps(batch).encode(), headers={"X-Device-Token": token})
+    key = client.get("/v1/segments").json()["features"][0]["properties"]["segment_key"]
+    detail = client.get(f"/v1/segments/{key}").json()
+    assert detail["n_passes"] >= 1
+    assert isinstance(detail["history"], list) and detail["history"]
