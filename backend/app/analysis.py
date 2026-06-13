@@ -74,6 +74,17 @@ def _circular_mean_deg(deg: np.ndarray) -> float:
     return float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360.0)
 
 
+def _cumulative_meters(lat: np.ndarray, lng: np.ndarray) -> np.ndarray:
+    """Cumulative great-circle distance (m) along the track, per sample."""
+    latr = np.radians(lat)
+    lngr = np.radians(lng)
+    dlat = np.diff(latr)
+    dlng = np.diff(lngr)
+    a = np.sin(dlat / 2) ** 2 + np.cos(latr[:-1]) * np.cos(latr[1:]) * np.sin(dlng / 2) ** 2
+    seg = 6_371_000.0 * 2 * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
+    return np.concatenate([[0.0], np.cumsum(seg)])
+
+
 def severity_from_peak(peak: float, cfg=settings) -> int:
     """0 none, 1 small, 2 medium, 3 large — from linear-vertical peak (m/s^2)."""
     if peak < cfg.event_peak_thresh:
@@ -141,6 +152,12 @@ def analyze(payload: dict, cfg=settings) -> list[Observation]:
         & np.isfinite(lat)
         & np.isfinite(lng)
     )
+
+    # Privacy backstop: drop the first/last N metres of the trip (home/work).
+    if cfg.trip_trim_meters > 0:
+        cum = _cumulative_meters(np.nan_to_num(lat), np.nan_to_num(lng))
+        total = cum[-1]
+        good &= (cum >= cfg.trip_trim_meters) & (cum <= total - cfg.trip_trim_meters)
 
     # --- window + per-window features, grouped by segment within this batch ---
     win = max(4, int(cfg.window_seconds * fs))

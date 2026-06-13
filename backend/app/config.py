@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     min_speed_mps: float = 2.8       # ~10 km/h; below this is idle, drop
     max_speed_mps: float = 33.0      # ~120 km/h
     max_gps_acc_m: float = 25.0      # drop windows with poor GPS
+    trip_trim_meters: float = 0.0    # privacy backstop: drop samples within this
+                                     # distance of a trip's start/end (0 = off)
     window_seconds: float = 1.0
     window_overlap: float = 0.5
     gravity_lp_seconds: float = 1.0  # low-pass span for gravity estimate

@@ -39,6 +39,14 @@ def test_pothole_is_detected_and_localised():
     assert o.h3_index in neighbourhood
 
 
+def test_trip_trimming_drops_trip_endpoints():
+    batch = make_batch("b-trim", "dev-1", potholes=[], seed=5)
+    full = analyze(batch)
+    trimmed = analyze(batch, cfg=settings.model_copy(update={"trip_trim_meters": 40.0}))
+    # Trimming the first/last 40 m removes the edge segments along the ~156 m drive.
+    assert 0 < len(trimmed) < len(full)
+
+
 def test_idle_low_speed_is_gated_out():
     # Below min_speed everything should be dropped -> no observations.
     batch = make_batch("b-idle", "dev-1", speed_mps=1.0, potholes=[(3.0, 8.0)], seed=3)
