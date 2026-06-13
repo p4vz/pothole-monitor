@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # fine. Lock to your viewer origin in production if you prefer.
     cors_origins: str = "*"
 
+    # ML: path to a trained defect model (JSON). Empty => use the heuristic.
+    model_path: str = ""
+
     # --- Segmentation (H3 hex grid + heading bucket) ---
     h3_resolution: int = 12          # ~3-10 m edge; res 13 for finer lanes
     heading_buckets: int = 8         # split opposite directions / lanes

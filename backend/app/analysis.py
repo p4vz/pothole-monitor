@@ -37,6 +37,28 @@ class Observation:
     centroid_lng: float
 
 
+@dataclass
+class WindowFeat:
+    """Per-window features — the shared unit for the heuristic and the ML model."""
+
+    ts: float
+    lat: float
+    lng: float
+    heading: float
+    quality: float
+    rms: float
+    peak: float
+    peak_count: int
+    p2p: float
+    mean_speed: float
+    event_count: int
+    max_severity: int
+
+    def vector(self) -> list[float]:
+        """Feature vector for ML (order matches ml.FEATURE_NAMES)."""
+        return [self.rms, self.peak, float(self.peak_count), self.p2p, self.mean_speed]
+
+
 def _moving_average(x: np.ndarray, n: int) -> np.ndarray:
     """Centered moving average along axis 0, edge-corrected (per column)."""
     if n <= 1:
@@ -108,7 +130,12 @@ def _count_events(v: np.ndarray, thresh: float) -> tuple[int, int]:
     return count, max_sev
 
 
-def analyze(payload: dict, cfg=settings) -> list[Observation]:
+def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
+    """Align, reorient, gate, and window a raw batch into per-window features.
+
+    Shared by the heuristic aggregation path and the ML training/inference path.
+    Includes low-quality windows (with their `quality`) so callers can filter.
+    """
     imu = payload.get("imu", {})
     gps = payload.get("gps", [])
     t = np.asarray(imu.get("t", []), dtype=float)
@@ -159,27 +186,48 @@ def analyze(payload: dict, cfg=settings) -> list[Observation]:
         total = cum[-1]
         good &= (cum >= cfg.trip_trim_meters) & (cum <= total - cfg.trip_trim_meters)
 
-    # --- window + per-window features, grouped by segment within this batch ---
+    # --- window the vertical signal into per-window features ---
     win = max(4, int(cfg.window_seconds * fs))
     hop = max(1, int(win * (1.0 - cfg.window_overlap)))
-    groups: dict[str, dict] = {}
+    windows: list[WindowFeat] = []
 
     for start in range(0, len(t) - win + 1, hop):
         sl = slice(start, start + win)
-        wgood = good[sl]
-        quality = float(np.mean(wgood))
-        if quality < cfg.min_window_quality:
-            continue
         v = vert[sl]
-        rms = float(np.sqrt(np.mean(v**2)))
         ev_count, ev_sev = _count_events(v, cfg.event_peak_thresh)
-        mlat = float(np.mean(lat[sl]))
-        mlng = float(np.mean(lng[sl]))
-        mhead = _circular_mean_deg(heading[sl])
-        mspeed = float(np.nanmean(speed[sl]))
-        mts = float(np.mean(t[sl]))
+        windows.append(
+            WindowFeat(
+                ts=float(np.mean(t[sl])),
+                lat=float(np.mean(lat[sl])),
+                lng=float(np.mean(lng[sl])),
+                heading=_circular_mean_deg(heading[sl]),
+                quality=float(np.mean(good[sl])),
+                rms=float(np.sqrt(np.mean(v**2))),
+                peak=float(np.max(np.abs(v))),
+                peak_count=ev_count,
+                p2p=float(np.max(v) - np.min(v)),
+                mean_speed=float(np.nanmean(speed[sl])),
+                event_count=ev_count,
+                max_severity=ev_sev,
+            )
+        )
+    return windows
 
-        key, h3idx, bucket = seg.segment_for(mlat, mlng, mhead)
+
+def analyze(payload: dict, cfg=settings, scorer=None) -> list[Observation]:
+    """Window a batch and collapse windows into one observation per segment/pass.
+
+    If `scorer` is given (an ml.RoughnessModel), it overrides heuristic event
+    detection per window; otherwise the heuristic peak-threshold path is used.
+    """
+    groups: dict[str, dict] = {}
+    for w in compute_windows(payload, cfg):
+        if w.quality < cfg.min_window_quality:
+            continue
+        ev_count, ev_sev = w.event_count, w.max_severity
+        if scorer is not None:
+            ev_count, ev_sev = scorer.score_window(w)
+        key, h3idx, bucket = seg.segment_for(w.lat, w.lng, w.heading)
         g = groups.get(key)
         if g is None:
             g = dict(
@@ -187,14 +235,14 @@ def analyze(payload: dict, cfg=settings) -> list[Observation]:
                 speed=[], qual=[], lat=[], lng=[], ts=[],
             )
             groups[key] = g
-        g["rms"].append(rms)
+        g["rms"].append(w.rms)
         g["events"] += ev_count
         g["sev"] = max(g["sev"], ev_sev)
-        g["speed"].append(mspeed)
-        g["qual"].append(quality)
-        g["lat"].append(mlat)
-        g["lng"].append(mlng)
-        g["ts"].append(mts)
+        g["speed"].append(w.mean_speed)
+        g["qual"].append(w.quality)
+        g["lat"].append(w.lat)
+        g["lng"].append(w.lng)
+        g["ts"].append(w.ts)
 
     out: list[Observation] = []
     for key, g in groups.items():

@@ -30,8 +30,10 @@ def process_batch(batch_id: str) -> int:
         if batch is None or batch.status == "processed":
             return 0
         try:
+            from .ml import get_model
+
             payload = _load_payload(get_store().get(batch.storage_key))
-            observations = analyze(payload)
+            observations = analyze(payload, scorer=get_model())
             for obs in observations:
                 # Insert the observation first so the distinct-device count in
                 # fold() includes this pass.
