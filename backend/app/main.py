@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -31,6 +32,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="RoadSense API", version="1.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def get_db():

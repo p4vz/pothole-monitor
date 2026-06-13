@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./roadsense.db"
     storage_dir: str = "./_storage"
 
+    # CORS: the public read API serves non-sensitive aggregate data, so "*" is
+    # fine. Lock to your viewer origin in production if you prefer.
+    cors_origins: str = "*"
+
     # --- Segmentation (H3 hex grid + heading bucket) ---
     h3_resolution: int = 12          # ~3-10 m edge; res 13 for finer lanes
     heading_buckets: int = 8         # split opposite directions / lanes

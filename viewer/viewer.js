@@ -1,8 +1,11 @@
 // RoadSense viewer — reads segment-state GeoJSON and colours H3 hexes by
 // condition (colour = severity, opacity = confidence). Keyless OSM tiles.
 //
-// Override the API base with ?api=https://your-backend (defaults to same origin).
-const API = new URLSearchParams(location.search).get("api") || "http://127.0.0.1:8000";
+// Override the API base with ?api=https://your-backend.
+// Defaults to the deployed Railway API; use ?api=http://127.0.0.1:8000 for local.
+const API =
+  new URLSearchParams(location.search).get("api") ||
+  "https://pothole-monitor-production.up.railway.app";
 
 const SEVERITY_COLOR = {
   smooth: "#2ecc71",
