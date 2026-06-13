@@ -19,7 +19,17 @@ def _normalize_url(url: str) -> str:
     return url
 
 
-database_url = _normalize_url(settings.database_url)
+database_url = _normalize_url(settings.database_url).strip()
+
+if not database_url or "${{" in database_url:
+    raise RuntimeError(
+        "DATABASE_URL is empty or an unresolved Railway reference "
+        f"(got {settings.database_url!r}). On the backend service's Variables, "
+        "set DATABASE_URL to your Postgres connection string — easiest via a "
+        "reference variable like ${{Postgres.DATABASE_URL}} (the name before the "
+        "dot must match your Postgres service), or paste the Postgres service's "
+        "DATABASE_URL value directly."
+    )
 
 _connect_args = (
     {"check_same_thread": False} if database_url.startswith("sqlite") else {}
