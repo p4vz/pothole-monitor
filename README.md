@@ -17,9 +17,10 @@ viewer (Leaflet + OSM)  ◀──── GET /v1/segments (GeoJSON) ────�
 
 | Dir | What | Status |
 |-----|------|--------|
-| [`backend/`](backend/) | Ingestion + analysis + aggregation + read API + ML | **Implemented & tested** (18 tests, runs on SQLite + local FS) |
+| [`backend/`](backend/) | Ingestion + analysis + Bayesian aggregation + read API + ML | **Implemented & tested** (23 tests, runs on SQLite + local FS) |
+| `index.html` / `app.js` | **Web collector** — logs motion+GPS in-browser, uploads to backend | Implemented (no app install needed) |
 | [`viewer/`](viewer/) | Static web map + segment detail/history panel | Implemented (keyless Leaflet/OSM) |
-| [`collector/`](collector/) | RN/Expo app: log + buffer + upload | Skeleton (core data path) |
+| [`collector/`](collector/) | Native RN/Expo collector (alternative to the web one) | Skeleton (core data path) |
 
 ## Quick start
 
@@ -45,6 +46,11 @@ cd ../viewer && python3 -m http.server 5500   # open http://localhost:5500
   recency-decayed roughness mean (roads **heal** after repaving) and a Beta defect
   posterior; confidence rises with **distinct devices**, so independent agreement
   outweighs one person repeating a route.
+- **Bayesian hit + swerve inference:** big potholes show up as *both* vertical jerk
+  (drivers who hit) and lateral/yaw evasion (drivers who steer around). The model
+  classifies each pass as hit / swerve / clear and fuses them, so a pothole most
+  people avoid — which roughness alone reads as "smooth" — is still flagged with
+  high probability and a swerve-inflated intensity, plus a sub-cell location estimate.
 
 Design rationale and the phased roadmap live in the planning doc; the legacy
 root `index.html`/`app.js` is the original single-page pothole prototype that
