@@ -17,8 +17,8 @@ viewer (Leaflet + OSM)  ◀──── GET /v1/segments (GeoJSON) ────�
 
 | Dir | What | Status |
 |-----|------|--------|
-| [`backend/`](backend/) | Ingestion + analysis + aggregation + read API | **Implemented & tested** (12 tests, runs on SQLite + local FS) |
-| [`viewer/`](viewer/) | Static web map colouring road condition | Implemented (keyless Leaflet/OSM) |
+| [`backend/`](backend/) | Ingestion + analysis + aggregation + read API + ML | **Implemented & tested** (18 tests, runs on SQLite + local FS) |
+| [`viewer/`](viewer/) | Static web map + segment detail/history panel | Implemented (keyless Leaflet/OSM) |
 | [`collector/`](collector/) | RN/Expo app: log + buffer + upload | Skeleton (core data path) |
 
 ## Quick start
@@ -50,7 +50,14 @@ Design rationale and the phased roadmap live in the planning doc; the legacy
 root `index.html`/`app.js` is the original single-page pothole prototype that
 seeded this project.
 
-## Roadmap (next)
+## Roadmap status
 
-OSM map-matching to replace H3 · supervised ML classifier trained on collected
-data · vector tiles · trip privacy trimming. See each component's README.
+Built: ingestion + immutable raw storage, heuristic analysis, H3 segmentation,
+multi-pass aggregation (distinct-device confidence, recency healing, trend),
+read API + viewer with detail/history, opt-in privacy trip-trimming, and a
+data-ready ML defect model (heuristic fallback until trained on real labels).
+
+Deferred by design: **OSM map-matching** (H3 is sufficient until there's real
+data to evaluate against) and **vector tiles** (a scale optimisation). The
+natural next step is operational — collect real drives, then retrain the model
+(`backend/scripts/train_model.py`) and revisit map-matching with data in hand.
