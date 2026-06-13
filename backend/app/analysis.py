@@ -53,6 +53,9 @@ class WindowFeat:
     mean_speed: float
     event_count: int
     max_severity: int
+    yaw_max: float = 0.0       # max + yaw rate (rad/s) about the gravity axis
+    yaw_min: float = 0.0       # max - yaw rate; both large => steer out-and-back
+    lateral_rms: float = 0.0   # horizontal (cross-track) linear accel RMS
 
     def vector(self) -> list[float]:
         """Feature vector for ML (order matches ml.FEATURE_NAMES)."""
@@ -170,6 +173,18 @@ def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
     ghat = grav / gnorm
     linear = a - grav
     vert = np.sum(linear * ghat, axis=1)  # vertical (road-normal) linear acceleration
+    # Horizontal (cross-track) acceleration magnitude = lateral evasion signal.
+    horiz = linear - vert[:, None] * ghat
+    lateral = np.linalg.norm(horiz, axis=1)
+    # Yaw rate about the gravity axis (steering), mount-invariant. Zero if no gyro.
+    if all(k in imu and imu[k] for k in ("gx", "gy", "gz")):
+        gyro = np.stack(
+            [np.asarray(imu["gx"], float), np.asarray(imu["gy"], float), np.asarray(imu["gz"], float)],
+            axis=1,
+        )
+        yaw_rate = np.sum(gyro * ghat, axis=1)
+    else:
+        yaw_rate = np.zeros(len(t))
 
     # --- quality gate ---
     good = (
@@ -194,6 +209,7 @@ def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
     for start in range(0, len(t) - win + 1, hop):
         sl = slice(start, start + win)
         v = vert[sl]
+        y = yaw_rate[sl]
         ev_count, ev_sev = _count_events(v, cfg.event_peak_thresh)
         windows.append(
             WindowFeat(
@@ -209,6 +225,9 @@ def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
                 mean_speed=float(np.nanmean(speed[sl])),
                 event_count=ev_count,
                 max_severity=ev_sev,
+                yaw_max=float(np.max(y)),
+                yaw_min=float(np.min(y)),
+                lateral_rms=float(np.sqrt(np.mean(lateral[sl] ** 2))),
             )
         )
     return windows

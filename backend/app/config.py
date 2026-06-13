@@ -51,5 +51,26 @@ class Settings(BaseSettings):
     severity_rough_max: float = 3.0
     # above severity_rough_max => "severe"
 
+    # --- Bayesian pothole model (hit + swerve fusion) ---
+    # A swerve = an out-and-back yaw transient (steer around the hole) and/or a
+    # lateral acceleration excursion, without a vertical jerk.
+    swerve_yaw_thresh: float = 0.25     # rad/s, min both-direction yaw to call a swerve
+    swerve_lat_thresh: float = 1.5      # m/s^2, lateral accel that also signals evasion
+    # Per-class likelihoods P(observation | pothole) and P(observation | none).
+    p_hit_given_pothole: float = 0.5
+    p_swerve_given_pothole: float = 0.3
+    p_clear_given_pothole: float = 0.2
+    p_hit_given_none: float = 0.05
+    p_swerve_given_none: float = 0.10
+    p_clear_given_none: float = 0.85
+    pothole_prior: float = 0.1          # prior P(pothole exists) per segment
+    swerve_intensity_boost: float = 0.6  # how much swerve-rate inflates intensity
+    swerve_loc_weight: float = 0.4      # swerves localise worse than hits
+
+    # --- Severity bins for fused intensity score (~m/s^2 peak) ---
+    intensity_minor_max: float = 5.0
+    intensity_medium_max: float = 9.0
+    # above intensity_medium_max => "large"
+
 
 settings = Settings()
