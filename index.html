@@ -3,161 +3,53 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Pavement Holes — Pothole Reporter</title>
-    <!-- Leaflet (OpenStreetMap) — keyless map; SRI-pinned to 1.9.4 -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <title>RoadSense — collector</title>
     <style>
-      :root {
-        --small: #f6c343;
-        --medium: #f08c00;
-        --large: #e03131;
-        --bg: #1f2933;
-        --panel: rgba(255, 255, 255, 0.97);
-      }
-      * { box-sizing: border-box; }
-      html, body { height: 100%; margin: 0; font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif; }
-      #map { position: absolute; inset: 0; z-index: 0; }
-
-      /* Viewer panel (top-left) */
-      #panel {
-        position: absolute; top: 10px; left: 10px; z-index: 2;
-        width: 300px; max-width: calc(100vw - 20px);
-        max-height: calc(100vh - 20px); overflow: hidden;
-        display: flex; flex-direction: column;
-        background: var(--panel); border-radius: 12px;
-        box-shadow: 0 6px 24px rgba(0,0,0,0.25);
-      }
-      #panel header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 10px 12px; cursor: pointer; user-select: none;
-        border-bottom: 1px solid #e9ecef;
-      }
-      #panel header h1 { font-size: 15px; margin: 0; }
-      #panel .body { overflow-y: auto; padding: 10px 12px; }
-      #panel.collapsed .body { display: none; }
-
-      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
-      .filters label { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
-      .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-      .dot.small { background: var(--small); }
-      .dot.medium { background: var(--medium); }
-      .dot.large { background: var(--large); }
-
-      button {
-        font: inherit; padding: 8px 10px; border: 0; border-radius: 8px;
-        background: #1c7ed6; color: #fff; cursor: pointer;
-      }
-      button.secondary { background: #495057; }
-      button.toggle.on { background: #2f9e44; }
-      button:disabled { opacity: 0.5; cursor: not-allowed; }
-      select, input[type="text"], input[type="password"] {
-        font: inherit; padding: 7px 8px; border: 1px solid #ced4da; border-radius: 8px; width: 100%;
-      }
-
-      #list { list-style: none; margin: 6px 0 0; padding: 0; }
-      #list li {
-        padding: 8px; border-radius: 8px; cursor: pointer; display: flex;
-        gap: 8px; align-items: center; border: 1px solid transparent;
-      }
-      #list li:hover { background: #f1f3f5; border-color: #e9ecef; }
-      #list .meta { font-size: 12px; color: #495057; line-height: 1.3; }
-      #count { font-size: 12px; color: #868e96; }
-
-      details.report { margin-top: 10px; border-top: 1px solid #e9ecef; padding-top: 8px; }
-      details.report summary { cursor: pointer; font-weight: 600; font-size: 14px; }
-      .status { font-size: 12px; white-space: pre-wrap; }
-      .perm { font-size: 12px; margin: 2px 0; }
-      .perm b { font-weight: 600; }
-      .readout { font-size: 12px; color: #343a40; font-variant-numeric: tabular-nums; }
-      .hint { font-size: 11px; color: #868e96; }
-      #toast {
-        position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
-        z-index: 3; background: rgba(0,0,0,0.82); color: #fff; padding: 9px 14px;
-        border-radius: 999px; font-size: 13px; max-width: 90vw; display: none;
-      }
-      /* Full-screen colour pulse shown when a pothole is auto-detected. */
-      #flash {
-        position: absolute; inset: 0; z-index: 1; pointer-events: none;
-        opacity: 0; transition: opacity 0.6s ease-out;
-      }
+      :root { color-scheme: light dark; }
+      body { margin: 0; font-family: system-ui, sans-serif; background: #f5f6f8; color: #1a1a1a; }
+      .wrap { max-width: 460px; margin: 0 auto; padding: 20px 16px 40px; }
+      h1 { font-size: 20px; margin: 8px 0 2px; }
+      .sub { color: #666; font-size: 13px; margin-bottom: 16px; }
+      .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 6px rgba(0,0,0,.08); padding: 16px; margin-bottom: 14px; }
+      #status { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+      button#toggle { width: 100%; border: 0; border-radius: 12px; background: #2ecc71; color: #fff;
+        font-size: 19px; font-weight: 700; padding: 16px; cursor: pointer; }
+      button#toggle.stop { background: #e74c3c; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      td { padding: 4px 0; }
+      td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: #333; }
+      .muted { color: #888; font-size: 12px; }
+      a { color: #2a7de1; }
+      pre#log { background: #11151a; color: #9fe7b0; font-size: 11px; border-radius: 10px;
+        padding: 10px; height: 110px; overflow: auto; white-space: pre-wrap; }
     </style>
   </head>
   <body>
-    <div id="map"></div>
+    <div class="wrap">
+      <h1>RoadSense collector</h1>
+      <div class="sub">Logs motion + GPS while you drive and uploads raw data to the backend. No account, no token — analysis happens server-side.</div>
 
-    <section id="panel">
-      <header id="panelHeader">
-        <h1>🕳️ Pavement Holes</h1>
-        <span id="collapseIcon">▾</span>
-      </header>
-      <div class="body">
-        <!-- Viewer: filters + list -->
-        <div class="row filters">
-          <label><input type="checkbox" class="sev-filter" value="small" checked /><span class="dot small"></span>Small</label>
-          <label><input type="checkbox" class="sev-filter" value="medium" checked /><span class="dot medium"></span>Medium</label>
-          <label><input type="checkbox" class="sev-filter" value="large" checked /><span class="dot large"></span>Large</label>
-        </div>
-        <div class="row">
-          <button class="secondary" id="locateBtn" type="button">📍 Locate me</button>
-          <span id="count">0 reports</span>
-        </div>
-        <ul id="list"></ul>
-
-        <!-- Reporting controls (only needed to add data) -->
-        <details class="report">
-          <summary>Report a pothole</summary>
-
-          <p class="hint">Viewing the map needs nothing. To save reports you need
-            sensor permissions and a GitHub token (stored only in this browser).</p>
-
-          <div class="row">
-            <button id="enableBtn" type="button">Enable sensors</button>
-          </div>
-          <div id="perms">
-            <div class="perm">Motion: <b id="perm-motion">unknown</b></div>
-            <div class="perm">Location: <b id="perm-geo">unknown</b></div>
-            <div class="perm">Wake lock: <b id="perm-wake">unknown</b></div>
-          </div>
-
-          <div class="row">
-            <button class="toggle" id="drivingBtn" type="button">🚗 Reporting mode: off</button>
-          </div>
-          <p class="hint">Reporting mode watches the accelerometer continuously. A
-            hard jolt (while moving, or when speed is unknown) is treated as a
-            pothole and auto-logged at your location — no tapping needed. Reports
-            batch-upload to GitHub every ~30 s.</p>
-          <div class="readout" id="readout">jolt: – • speed: – • logged: 0 • last: –</div>
-
-          <div class="row">
-            <select id="severitySel" title="Manual severity (overrides sensor if motion is unavailable)">
-              <option value="auto" selected>Severity: auto (from sensor)</option>
-              <option value="small">Small</option>
-              <option value="medium">Medium</option>
-              <option value="large">Large</option>
-            </select>
-          </div>
-          <div class="row">
-            <button id="reportBtn" type="button">➕ Report hole at my location</button>
-          </div>
-
-          <div class="row">
-            <input type="password" id="tokenInput" placeholder="GitHub token (contents:write)" autocomplete="off" />
-          </div>
-          <div class="row">
-            <button class="secondary" id="saveTokenBtn" type="button">Save token</button>
-            <button class="secondary" id="clearTokenBtn" type="button">Clear</button>
-          </div>
-          <div class="status" id="status"></div>
-        </details>
+      <div class="card">
+        <div id="status">Idle</div>
+        <button id="toggle">Start trip</button>
+        <div class="muted" style="margin-top:10px">Keep this screen on while driving. Mount the phone or leave it still in the vehicle.</div>
       </div>
-    </section>
 
-    <div id="flash"></div>
-    <div id="toast"></div>
+      <div class="card">
+        <table>
+          <tr><td>GPS</td><td id="gps">—</td></tr>
+          <tr><td>Samples (current batch)</td><td id="samples">0</td></tr>
+          <tr><td>Batches awaiting upload</td><td id="pending">0</td></tr>
+          <tr><td>Last upload</td><td id="lastUpload">never</td></tr>
+        </table>
+      </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+      <div class="card">
+        <div class="muted">Activity</div>
+        <pre id="log"></pre>
+        <div class="muted">API: <span id="api"></span> · <a href="viewer/">open condition map →</a></div>
+      </div>
+    </div>
     <script src="config.js"></script>
     <script src="app.js"></script>
   </body>
