@@ -69,12 +69,18 @@ def fold(session: Session, obs: Observation, device_id: str, now: datetime, cfg=
             mean=obs.roughness,
             m2=0.0,
             n_eff=1.0,
+            trend_ema=0.0,
             n_passes=0,
             n_devices=0,
             first_seen=now,
         )
         session.add(state)
     else:
+        # Trend: is this pass rougher/smoother than the established level? An EMA
+        # of (observation - prior mean) reads positive when a road is worsening
+        # and negative while it heals; it returns to ~0 once the mean catches up.
+        mean_pre = state.mean
+        residual = obs.roughness - mean_pre
         # Recency decay since last update (repaving / seasonal healing).
         dt_days = max(0.0, (now - _aware(state.last_seen)).total_seconds() / 86400.0)
         d = 0.5 ** (dt_days / cfg.decay_halflife_days)
@@ -89,6 +95,8 @@ def fold(session: Session, obs: Observation, device_id: str, now: datetime, cfg=
         state.mean += delta * (1.0 / n_eff_new)
         state.m2 += delta * (obs.roughness - state.mean)
         state.n_eff = n_eff_new
+
+        state.trend_ema = (1.0 - cfg.trend_alpha) * state.trend_ema * d + cfg.trend_alpha * residual
 
     # Beta update over "defect exists".
     if detection:
@@ -109,6 +117,12 @@ def fold(session: Session, obs: Observation, device_id: str, now: datetime, cfg=
     state.severity_class = severity_class(state.mean, cfg)
     state.defect_probability = float(state.alpha / (state.alpha + state.beta))
     state.confidence = _confidence(state.alpha, state.beta, state.n_devices, cfg)
+    if state.trend_ema > cfg.trend_eps:
+        state.trend = "worsening"
+    elif state.trend_ema < -cfg.trend_eps:
+        state.trend = "improving"
+    else:
+        state.trend = "stable"
     state.last_seen = now
     state.updated_at = now
     return state

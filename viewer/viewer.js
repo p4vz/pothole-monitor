@@ -33,12 +33,41 @@ function styleFor(props) {
   };
 }
 
-function popupHtml(p) {
-  return `<b>${p.severity_class}</b> (roughness ${p.roughness_score})<br>
-    defect prob: ${(p.defect_probability * 100).toFixed(0)}%<br>
-    confidence: ${(p.confidence * 100).toFixed(0)}%<br>
-    passes: ${p.n_passes} · devices: ${p.n_devices}<br>
-    <span class="muted">updated ${new Date(p.last_seen).toLocaleString()}</span>`;
+// Tiny dependency-free SVG sparkline of roughness over recent passes.
+function sparkline(values, w = 220, h = 40) {
+  if (!values.length) return "";
+  const max = Math.max(...values, 0.1);
+  const step = values.length > 1 ? w / (values.length - 1) : 0;
+  const pts = values
+    .map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * h).toFixed(1)}`)
+    .join(" ");
+  return `<svg width="${w}" height="${h}" style="display:block;margin:6px 0">
+    <polyline fill="none" stroke="#e67e22" stroke-width="1.5" points="${pts}" /></svg>`;
+}
+
+async function showDetail(segmentKey) {
+  const el = document.getElementById("detail");
+  el.style.display = "block";
+  el.innerHTML = "loading…";
+  try {
+    const d = await (await fetch(`${API}/v1/segments/${segmentKey}`)).json();
+    // History comes newest-first; reverse for a left-to-right time sparkline.
+    const series = d.history.map((o) => o.roughness).reverse();
+    el.innerHTML = `
+      <span class="close" onclick="document.getElementById('detail').style.display='none'">✕</span>
+      <h2>${d.severity_class} road</h2>
+      <table>
+        <tr><td>Trend</td><td class="trend-${d.trend}">${d.trend}</td></tr>
+        <tr><td>Roughness</td><td>${d.roughness_score.toFixed(2)}</td></tr>
+        <tr><td>Defect probability</td><td>${(d.defect_probability * 100).toFixed(0)}%</td></tr>
+        <tr><td>Confidence</td><td>${(d.confidence * 100).toFixed(0)}%</td></tr>
+        <tr><td>Passes / devices</td><td>${d.n_passes} / ${d.n_devices}</td></tr>
+      </table>
+      ${sparkline(series)}
+      <span class="muted">${d.history.length} passes · last ${new Date(d.last_seen).toLocaleString()}</span>`;
+  } catch (err) {
+    el.innerHTML = `<span class="muted">error: ${err.message}</span>`;
+  }
 }
 
 async function refresh() {
@@ -53,7 +82,8 @@ async function refresh() {
     if (layer) layer.remove();
     layer = L.geoJSON(geojson, {
       style: (f) => styleFor(f.properties),
-      onEachFeature: (f, l) => l.bindPopup(popupHtml(f.properties)),
+      onEachFeature: (f, l) =>
+        l.on("click", () => showDetail(f.properties.segment_key)),
     }).addTo(map);
     status.textContent = `${geojson.features.length} segments`;
   } catch (err) {

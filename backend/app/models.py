@@ -94,11 +94,14 @@ class SegmentState(Base):
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     defect_probability: Mapped[float] = mapped_column(Float, default=0.0)
 
+    trend: Mapped[str] = mapped_column(String, default="stable")  # worsening|improving|stable
+
     alpha: Mapped[float] = mapped_column(Float, default=1.0)
     beta: Mapped[float] = mapped_column(Float, default=1.0)
     mean: Mapped[float] = mapped_column(Float, default=0.0)
     m2: Mapped[float] = mapped_column(Float, default=0.0)
     n_eff: Mapped[float] = mapped_column(Float, default=0.0)
+    trend_ema: Mapped[float] = mapped_column(Float, default=0.0)
     n_passes: Mapped[int] = mapped_column(Integer, default=0)
     n_devices: Mapped[int] = mapped_column(Integer, default=0)
 

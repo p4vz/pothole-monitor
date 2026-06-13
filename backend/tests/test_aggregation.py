@@ -82,6 +82,20 @@ def test_distinct_devices_beat_one_device_repeating(db):
     assert b.confidence > a.confidence
 
 
+def test_trend_tracks_worsening_then_improving(db):
+    now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # Gradually worsening road -> trend should read "worsening".
+    state = None
+    for i, r in enumerate([0.5, 0.9, 1.4, 2.0, 2.6]):
+        state = _record(db, _obs(r, 1 if r > 1.2 else 0, f"w{i}"), f"w{i}", now + timedelta(hours=i))
+    assert state.trend == "worsening"
+
+    # Then it is resurfaced and smooths out -> trend flips to "improving".
+    for i, r in enumerate([1.5, 0.8, 0.3, 0.2]):
+        state = _record(db, _obs(r, 0, f"i{i}"), f"i{i}", now + timedelta(hours=10 + i))
+    assert state.trend == "improving"
+
+
 def test_road_heals_after_repaving(db):
     now = datetime(2026, 1, 1, tzinfo=timezone.utc)
     # Five rough passes -> severe, high defect probability.

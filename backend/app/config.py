@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     decay_halflife_days: float = 90.0     # recency decay => roads heal after repaving
     n_eff_cap: float = 30.0               # cap effective sample count => stays adaptive
     confidence_k: float = 4.0             # evidence needed for mid confidence
+    trend_alpha: float = 0.3              # EMA weight for the worsening/improving signal
+    trend_eps: float = 0.1                # deadband around "stable"
 
     # --- Severity bins (roughness score, ~m/s^2 RMS) ---
     severity_smooth_max: float = 0.8

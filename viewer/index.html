@@ -20,6 +20,20 @@
     label { display: block; margin-top: 8px; }
     input[type=range] { width: 100%; }
     .muted { color: #666; font-size: 11px; }
+    .detail {
+      position: absolute; z-index: 1000; bottom: 12px; left: 12px;
+      background: #fff; padding: 12px 14px; border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.2); font-size: 13px; width: 250px;
+      display: none;
+    }
+    .detail h2 { font-size: 14px; margin: 0 0 6px; text-transform: capitalize; }
+    .detail .close { float: right; cursor: pointer; color: #999; }
+    .detail table { width: 100%; border-collapse: collapse; }
+    .detail td { padding: 1px 0; }
+    .detail td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+    .trend-worsening { color: #e74c3c; font-weight: 600; }
+    .trend-improving { color: #2ecc71; font-weight: 600; }
+    .trend-stable { color: #888; }
   </style>
 </head>
 <body>
@@ -38,6 +52,7 @@
     <div class="muted">Opacity ∝ confidence. Click a hex for detail.</div>
     <div class="muted" id="status">loading…</div>
   </div>
+  <div class="detail" id="detail"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="viewer.js"></script>
 </body>
