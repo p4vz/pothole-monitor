@@ -2,6 +2,7 @@
 (with PostGIS) for production. Geometry is stored as plain lat/lng floats so the
 schema is portable; the GeoJSON the viewer needs is derived from H3 cells, and a
 PostGIS GIST index can be added on a generated geometry column in production."""
+import os
 import re
 
 from sqlalchemy import create_engine
@@ -9,6 +10,16 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import settings
+
+
+def _resolve_database_url() -> str:
+    """Pick the first NON-EMPTY source so a blank/placeholder var can't shadow a
+    good one: explicit ROADSENSE_DATABASE_URL, then Railway's DATABASE_URL, then
+    the configured default (SQLite)."""
+    for val in (os.getenv("ROADSENSE_DATABASE_URL"), os.getenv("DATABASE_URL")):
+        if val and val.strip():
+            return val
+    return settings.database_url
 
 
 def _normalize_url(url: str) -> str:
@@ -29,12 +40,13 @@ def _redact(url: str) -> str:
     return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", url)
 
 
-database_url = _normalize_url(settings.database_url)
+_raw_url = _resolve_database_url()
+database_url = _normalize_url(_raw_url)
 
 if not database_url or "${{" in database_url:
     raise RuntimeError(
         "DATABASE_URL is empty or an unresolved Railway reference "
-        f"(got {settings.database_url!r}). On the backend service's Variables, "
+        f"(got {_raw_url!r}). On the backend service's Variables, "
         "set DATABASE_URL to your Postgres connection string — easiest via a "
         "reference variable like ${{Postgres.DATABASE_URL}} (the name before the "
         "dot must match your Postgres service), or paste the Postgres service's "
