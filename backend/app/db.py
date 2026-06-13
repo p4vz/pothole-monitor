@@ -2,7 +2,10 @@
 (with PostGIS) for production. Geometry is stored as plain lat/lng floats so the
 schema is portable; the GeoJSON the viewer needs is derived from H3 cells, and a
 PostGIS GIST index can be added on a generated geometry column in production."""
+import re
+
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import settings
@@ -11,7 +14,9 @@ from .config import settings
 def _normalize_url(url: str) -> str:
     """Accept the standard URLs hosts hand out and route them to the installed
     driver. Railway/Heroku give `postgres://` or `postgresql://` (which SQLAlchemy
-    maps to psycopg2); we ship psycopg v3, so force the `+psycopg` driver."""
+    maps to psycopg2); we ship psycopg v3, so force the `+psycopg` driver.
+    Tolerate values pasted with surrounding quotes/whitespace."""
+    url = url.strip().strip('"').strip("'").strip()
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
     if url.startswith("postgresql://"):
@@ -19,7 +24,12 @@ def _normalize_url(url: str) -> str:
     return url
 
 
-database_url = _normalize_url(settings.database_url).strip()
+def _redact(url: str) -> str:
+    """Hide the password so the URL is safe to print in logs."""
+    return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", url)
+
+
+database_url = _normalize_url(settings.database_url)
 
 if not database_url or "${{" in database_url:
     raise RuntimeError(
@@ -30,6 +40,15 @@ if not database_url or "${{" in database_url:
         "dot must match your Postgres service), or paste the Postgres service's "
         "DATABASE_URL value directly."
     )
+
+try:
+    make_url(database_url)
+except Exception as exc:  # malformed value (stray chars, bad format)
+    raise RuntimeError(
+        f"DATABASE_URL is set but is not a valid connection string. "
+        f"The app received (password redacted): {_redact(database_url)!r}. "
+        "Check for stray quotes, spaces, a trailing newline, or a malformed value."
+    ) from exc
 
 _connect_args = (
     {"check_same_thread": False} if database_url.startswith("sqlite") else {}
