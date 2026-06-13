@@ -9,11 +9,13 @@ import gzip
 import json
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -237,3 +239,12 @@ def get_segment(segment_key: str, db: Session = Depends(get_db)) -> dict:
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok", "h3_resolution": settings.h3_resolution}
+
+
+# Serve the web collector (/) and viewer (/viewer) from the same origin as the
+# API, so the browser needs no separate host and no CORS. Mounted LAST so the
+# API routes above take precedence over this catch-all. Skipped if absent
+# (e.g. during tests run from a checkout without the built web dir).
+_WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+if _WEB_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(_WEB_DIR), html=True), name="web")

@@ -17,10 +17,14 @@ viewer (Leaflet + OSM)  ◀──── GET /v1/segments (GeoJSON) ────�
 
 | Dir | What | Status |
 |-----|------|--------|
-| [`backend/`](backend/) | Ingestion + analysis + Bayesian aggregation + read API + ML | **Implemented & tested** (23 tests, runs on SQLite + local FS) |
-| `index.html` / `app.js` | **Web collector** — logs motion+GPS in-browser, uploads to backend | Implemented (no app install needed) |
-| [`viewer/`](viewer/) | Static web map + segment detail/history panel | Implemented (keyless Leaflet/OSM) |
+| [`backend/`](backend/) | Ingestion + analysis + Bayesian aggregation + read API + ML; **also serves the web UI** | **Implemented & tested** (23 tests, runs on SQLite + local FS) |
+| [`backend/web/`](backend/web/) | **Web collector** (`/`) — logs motion+GPS in-browser, uploads to backend; no app install | Implemented |
+| [`backend/web/viewer/`](backend/web/viewer/) | Condition map (`/viewer`) + segment detail/history panel | Implemented (keyless Leaflet/OSM) |
 | [`collector/`](collector/) | Native RN/Expo collector (alternative to the web one) | Skeleton (core data path) |
+
+The backend serves the collector at `/` and the viewer at `/viewer` from the
+**same origin** as the API, so one Railway service hosts everything — no CORS,
+no second host, no API URL to configure.
 
 ## Quick start
 

@@ -1,4 +1,5 @@
 """Configuration. All values overridable via ROADSENSE_* env vars or a .env file."""
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,7 +9,12 @@ class Settings(BaseSettings):
     )
 
     # --- Infrastructure (dev defaults run with zero external services) ---
-    database_url: str = "sqlite:///./roadsense.db"
+    # Accept the unprefixed DATABASE_URL that Railway/Heroku inject, as well as
+    # ROADSENSE_DATABASE_URL, so production uses Postgres without extra config.
+    database_url: str = Field(
+        "sqlite:///./roadsense.db",
+        validation_alias=AliasChoices("ROADSENSE_DATABASE_URL", "DATABASE_URL"),
+    )
     storage_dir: str = "./_storage"
 
     # CORS: the public read API serves non-sensitive aggregate data, so "*" is
