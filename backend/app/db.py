@@ -7,11 +7,25 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import settings
 
+
+def _normalize_url(url: str) -> str:
+    """Accept the standard URLs hosts hand out and route them to the installed
+    driver. Railway/Heroku give `postgres://` or `postgresql://` (which SQLAlchemy
+    maps to psycopg2); we ship psycopg v3, so force the `+psycopg` driver."""
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
+database_url = _normalize_url(settings.database_url)
+
 _connect_args = (
-    {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+    {"check_same_thread": False} if database_url.startswith("sqlite") else {}
 )
 
-engine = create_engine(settings.database_url, future=True, connect_args=_connect_args)
+engine = create_engine(database_url, future=True, connect_args=_connect_args)
 SessionLocal = sessionmaker(
     bind=engine, autoflush=False, expire_on_commit=False, future=True
 )
