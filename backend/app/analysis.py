@@ -35,6 +35,10 @@ class Observation:
     quality: float
     centroid_lat: float
     centroid_lng: float
+    vert_peak: float = 0.0     # max vertical jerk over the pass (hit magnitude)
+    yaw_out: float = 0.0       # peak + yaw rate (steer one way)
+    yaw_back: float = 0.0      # peak - yaw rate magnitude (steer back)
+    lateral_rms: float = 0.0   # mean lateral acceleration (evasion)
 
 
 @dataclass
@@ -252,6 +256,7 @@ def analyze(payload: dict, cfg=settings, scorer=None) -> list[Observation]:
             g = dict(
                 h3=h3idx, bucket=bucket, rms=[], events=0, sev=0,
                 speed=[], qual=[], lat=[], lng=[], ts=[],
+                peak=0.0, yaw_out=0.0, yaw_back=0.0, lat_rms=[],
             )
             groups[key] = g
         g["rms"].append(w.rms)
@@ -262,6 +267,10 @@ def analyze(payload: dict, cfg=settings, scorer=None) -> list[Observation]:
         g["lat"].append(w.lat)
         g["lng"].append(w.lng)
         g["ts"].append(w.ts)
+        g["peak"] = max(g["peak"], w.peak)
+        g["yaw_out"] = max(g["yaw_out"], w.yaw_max)
+        g["yaw_back"] = max(g["yaw_back"], -w.yaw_min)
+        g["lat_rms"].append(w.lateral_rms)
 
     out: list[Observation] = []
     for key, g in groups.items():
@@ -278,6 +287,10 @@ def analyze(payload: dict, cfg=settings, scorer=None) -> list[Observation]:
                 quality=float(np.mean(g["qual"])),
                 centroid_lat=float(np.mean(g["lat"])),
                 centroid_lng=float(np.mean(g["lng"])),
+                vert_peak=float(g["peak"]),
+                yaw_out=float(g["yaw_out"]),
+                yaw_back=float(g["yaw_back"]),
+                lateral_rms=float(np.mean(g["lat_rms"])),
             )
         )
     return out

@@ -57,9 +57,13 @@ async function showDetail(segmentKey) {
       <span class="close" onclick="document.getElementById('detail').style.display='none'">✕</span>
       <h2>${d.severity_class} road</h2>
       <table>
+        <tr><td>Pothole probability</td><td>${(d.pothole_probability * 100).toFixed(0)}%</td></tr>
+        <tr><td>Intensity</td><td>${d.intensity_class} (${d.intensity_score.toFixed(1)})</td></tr>
+        <tr><td>Avoidance (swerve rate)</td><td>${(d.swerve_rate * 100).toFixed(0)}%</td></tr>
+        <tr><td>Hits / swerves</td><td>${d.n_hits.toFixed(1)} / ${d.n_swerves.toFixed(1)}</td></tr>
+        <tr><td>Location ±</td><td>${d.location_spread_m.toFixed(0)} m</td></tr>
         <tr><td>Trend</td><td class="trend-${d.trend}">${d.trend}</td></tr>
         <tr><td>Roughness</td><td>${d.roughness_score.toFixed(2)}</td></tr>
-        <tr><td>Defect probability</td><td>${(d.defect_probability * 100).toFixed(0)}%</td></tr>
         <tr><td>Confidence</td><td>${(d.confidence * 100).toFixed(0)}%</td></tr>
         <tr><td>Passes / devices</td><td>${d.n_passes} / ${d.n_devices}</td></tr>
       </table>

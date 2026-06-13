@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from .analysis import Observation
 from .config import settings
 from .models import SegmentObservation, SegmentState
+from . import bayesian
 from . import segmentation as seg
 
 
@@ -75,6 +76,8 @@ def fold(session: Session, obs: Observation, device_id: str, now: datetime, cfg=
             first_seen=now,
         )
         session.add(state)
+        bayesian.init_state(state, obs, cfg)
+        bayesian.update(state, obs, decay=1.0, cfg=cfg)
     else:
         # Trend: is this pass rougher/smoother than the established level? An EMA
         # of (observation - prior mean) reads positive when a road is worsening
@@ -97,6 +100,7 @@ def fold(session: Session, obs: Observation, device_id: str, now: datetime, cfg=
         state.n_eff = n_eff_new
 
         state.trend_ema = (1.0 - cfg.trend_alpha) * state.trend_ema * d + cfg.trend_alpha * residual
+        bayesian.update(state, obs, decay=d, cfg=cfg)
 
     # Beta update over "defect exists".
     if detection:

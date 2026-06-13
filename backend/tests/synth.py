@@ -25,6 +25,8 @@ def make_batch(
     fs: int = 50,
     noise_std: float = 0.15,     # smooth-road vertical noise
     potholes: list[tuple[float, float]] | None = None,  # (t_offset_s, magnitude m/s^2)
+    swerves: list[tuple[float, float]] | None = None,    # (t_offset_s, yaw_rate rad/s) out-and-back
+    turns: list[tuple[float, float]] | None = None,      # (t_offset_s, yaw_rate) sustained one-way
     gps_acc: float = 5.0,
     seed: int = 0,
 ) -> dict:
@@ -45,6 +47,22 @@ def make_batch(
     az = G + vert            # gravity on z + vertical motion
     ax = rng.normal(0.0, 0.05, n)
     ay = rng.normal(0.0, 0.05, n)
+    # Gyro: gravity is on +z, so yaw rate (steering) lives on the z gyro axis.
+    gz = rng.normal(0.0, 0.01, n)
+
+    half = max(1, int(0.4 * fs))
+    # A swerve: steer one way then back (yaw +then-) with a lateral accel bump,
+    # and NO vertical jerk (the driver avoided the hole).
+    for t_off, yaw in swerves or []:
+        i = int(t_off * fs)
+        gz[max(0, i - half):i] += yaw          # steer out
+        gz[i:min(n, i + half)] -= yaw          # steer back
+        ax[max(0, i - half):min(n, i + half)] += 0.6 * yaw * speed_mps  # lateral accel
+
+    # A steady turn: sustained yaw in ONE direction (must NOT look like a swerve).
+    for t_off, yaw in turns or []:
+        i = int(t_off * fs)
+        gz[max(0, i - half):min(n, i + half)] += yaw
 
     # GPS at 1 Hz advancing along heading.
     hb = math.radians(heading_deg)
@@ -74,7 +92,7 @@ def make_batch(
             "az": az.tolist(),
             "gx": np.zeros(n).tolist(),
             "gy": np.zeros(n).tolist(),
-            "gz": np.zeros(n).tolist(),
+            "gz": gz.tolist(),
         },
         "gps": gps,
     }

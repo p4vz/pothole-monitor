@@ -96,6 +96,22 @@ class SegmentState(Base):
 
     trend: Mapped[str] = mapped_column(String, default="stable")  # worsening|improving|stable
 
+    # --- Bayesian pothole model (hit + swerve fusion) ---
+    pothole_probability: Mapped[float] = mapped_column(Float, default=0.0)
+    ex_log_odds: Mapped[float] = mapped_column(Float, default=0.0)  # existence log-odds
+    intensity_score: Mapped[float] = mapped_column(Float, default=0.0)  # fused severity
+    intensity_mean: Mapped[float] = mapped_column(Float, default=0.0)   # mean hit magnitude
+    intensity_var: Mapped[float] = mapped_column(Float, default=0.0)
+    intensity_class: Mapped[str] = mapped_column(String, default="none")  # none|minor|medium|large
+    swerve_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    n_hits: Mapped[float] = mapped_column(Float, default=0.0)
+    n_swerves: Mapped[float] = mapped_column(Float, default=0.0)
+    n_clears: Mapped[float] = mapped_column(Float, default=0.0)
+    loc_lat: Mapped[float] = mapped_column(Float, default=0.0)   # refined location estimate
+    loc_lng: Mapped[float] = mapped_column(Float, default=0.0)
+    loc_var_m2: Mapped[float] = mapped_column(Float, default=0.0)  # location spread (m^2)
+    loc_weight: Mapped[float] = mapped_column(Float, default=0.0)
+
     alpha: Mapped[float] = mapped_column(Float, default=1.0)
     beta: Mapped[float] = mapped_column(Float, default=1.0)
     mean: Mapped[float] = mapped_column(Float, default=0.0)
