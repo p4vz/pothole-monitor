@@ -97,7 +97,6 @@
       }
 
       async function load() {
-        $("dlGeojson").href = `${API}/v1/segments`;
         $("apiSeg").href = `${API}/v1/segments`;
         $("apiBatches").href = `${API}/v1/batches`;
 
@@ -135,10 +134,27 @@
         }
       }
 
+      async function fetchSegments() {
+        const res = await fetch(`${API}/v1/segments`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      }
+
+      $("dlGeojson").addEventListener("click", async (e) => {
+        e.preventDefault();
+        try {
+          const g = await fetchSegments();
+          if (!g.features.length) { $("segNote").textContent = "no segments to export yet"; return; }
+          download("segments.geojson", JSON.stringify(g, null, 2));
+        } catch (err) { $("segNote").textContent = `download failed: ${err.message}`; }
+      });
+
       $("dlCsv").addEventListener("click", async () => {
-        const g = await (await fetch(`${API}/v1/segments`)).json();
-        if (!g.features.length) { $("segNote").textContent = "no segments to export yet"; return; }
-        download("segments.csv", toCsv(g), "text/csv");
+        try {
+          const g = await fetchSegments();
+          if (!g.features.length) { $("segNote").textContent = "no segments to export yet"; return; }
+          download("segments.csv", toCsv(g), "text/csv");
+        } catch (err) { $("segNote").textContent = `download failed: ${err.message}`; }
       });
 
       load();

@@ -30,6 +30,9 @@ from .storage import get_store
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    from .schema_sync import ensure_columns
+
+    ensure_columns()  # self-heal schema drift from older deploys
     yield
 
 
@@ -216,7 +219,7 @@ def get_segment(segment_key: str, db: Session = Depends(get_db)) -> dict:
         "n_swerves": s.n_swerves,
         "n_clears": s.n_clears,
         "estimated_location": [s.loc_lat, s.loc_lng],
-        "location_spread_m": s.loc_var_m2 ** 0.5,
+        "location_spread_m": (s.loc_var_m2 or 0.0) ** 0.5,
         "trend": s.trend,
         "n_passes": s.n_passes,
         "n_devices": s.n_devices,
