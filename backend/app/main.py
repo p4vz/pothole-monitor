@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal, init_db
 from .models import Device, RawBatch, SegmentObservation, SegmentState
+from .analysis import vertical_jerk_events
 from .pipeline import _load_payload, process_batch
 from .schemas import BatchAck, BatchUpload, DeviceCreate, DeviceOut
 from . import segmentation as seg
@@ -390,6 +391,7 @@ def get_segment_raw(segment_key: str, limit: int = 200, db: Session = Depends(ge
                 "n_samples": e - s,
                 "imu": imu_slice,
                 "gps": gps,
+                "events": vertical_jerk_events(imu_slice),  # jolt markers for the plot
             }
         )
     note = None

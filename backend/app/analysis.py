@@ -141,6 +141,35 @@ def _count_events(v: np.ndarray, thresh: float) -> tuple[int, int]:
     return count, max_sev
 
 
+def vertical_jerk_events(imu: dict, cfg=settings) -> list[dict]:
+    """Detect road-event jolts in a raw IMU slice: reorient to road-normal
+    (mirrors compute_windows' gravity removal) and return the local maxima of the
+    vertical jerk above the event threshold as [{t, value, severity}]. Used to
+    mark where a hit occurred on the acceleration plot."""
+    t = np.asarray(imu.get("t", []), float)
+    if t.size < 4:
+        return []
+    a = np.stack(
+        [np.asarray(imu["ax"], float), np.asarray(imu["ay"], float), np.asarray(imu["az"], float)],
+        axis=1,
+    )
+    dt = float(np.median(np.diff(t)))
+    fs = (1.0 / dt) if dt > 0 else float(cfg.sample_rate_default)
+    grav = _moving_average(a, max(1, int(cfg.gravity_lp_seconds * fs)))
+    gnorm = np.linalg.norm(grav, axis=1, keepdims=True)
+    ghat = grav / np.where(gnorm < 1e-6, 1e-6, gnorm)
+    vert = np.sum((a - grav) * ghat, axis=1)
+    av = np.abs(vert)
+    refractory = max(1, int(0.25 * fs))  # collapse one jolt into one marker
+    events: list[dict] = []
+    last = -(10**9)
+    for i in range(1, len(av) - 1):
+        if av[i] >= cfg.event_peak_thresh and av[i] >= av[i - 1] and av[i] > av[i + 1] and i - last >= refractory:
+            events.append({"t": float(t[i]), "value": float(vert[i]), "severity": severity_from_peak(av[i])})
+            last = i
+    return events
+
+
 def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
     """Align, reorient, gate, and window a raw batch into per-window features.
 

@@ -45,7 +45,8 @@ function sparkline(values, w = 220, h = 40) {
 }
 
 // Multi-line time-series plot (value vs seconds-from-start), dependency-free SVG.
-function linePlot(t, seriesList, colors, labels, title, unit, w = 300, h = 130) {
+// `markers` (optional) = array of absolute timestamps to flag as detected events.
+function linePlot(t, seriesList, colors, labels, title, unit, markers = [], w = 300, h = 130) {
   if (!t || t.length < 2) return `<div class="muted">${title}: not enough samples</div>`;
   const pad = 26;
   const t0 = t[0];
@@ -63,6 +64,14 @@ function linePlot(t, seriesList, colors, labels, title, unit, w = 300, h = 130) 
       return `<polyline fill="none" stroke="${colors[i]}" stroke-width="1" points="${pts}"/>`;
     })
     .join("");
+  // Event markers: dashed vertical line + flag at the top.
+  const marks = (markers || [])
+    .map((mt) => {
+      const x = X(mt - t0);
+      return `<line x1="${x.toFixed(1)}" y1="${pad}" x2="${x.toFixed(1)}" y2="${h - pad}" stroke="#e74c3c" stroke-width="1" stroke-dasharray="3 2"/>` +
+        `<polygon points="${(x - 3).toFixed(1)},${pad} ${(x + 3).toFixed(1)},${pad} ${x.toFixed(1)},${(pad + 5).toFixed(1)}" fill="#e74c3c"/>`;
+    })
+    .join("");
   const zeroY = ymin <= 0 && ymax >= 0 ? Y(0) : null;
   const legend = labels
     .map((l, i) => `<tspan fill="${colors[i]}" font-weight="700"> ${l}</tspan>`)
@@ -77,6 +86,7 @@ function linePlot(t, seriesList, colors, labels, title, unit, w = 300, h = 130) 
     <text x="3" y="${h - pad}" font-size="9" fill="#999">${ymin.toFixed(1)}</text>
     <text x="${pad}" y="${h - 6}" font-size="9" fill="#999">0s</text>
     <text x="${w - pad}" y="${h - 6}" font-size="9" fill="#999" text-anchor="end">${xmax.toFixed(1)}s</text>
+    ${marks}
     ${lines}
   </svg>`;
 }
@@ -107,9 +117,14 @@ async function loadRawPlots(segmentKey) {
     const draw = (i) => {
       const p = rawPasses[i];
       const im = p.imu;
+      const eventTimes = (p.events || []).map((e) => e.t);
+      const hitNote = eventTimes.length
+        ? `<span class="muted"><span style="color:#e74c3c">▾</span> ${eventTimes.length} detected jolt${eventTimes.length > 1 ? "s" : ""}</span><br>`
+        : "";
       inner.innerHTML =
-        linePlot(im.t, [im.ax, im.ay, im.az], ["#e74c3c", "#27ae60", "#2a7de1"], ["ax", "ay", "az"], "Acceleration", "m/s²") +
+        linePlot(im.t, [im.ax, im.ay, im.az], ["#e74c3c", "#27ae60", "#2a7de1"], ["ax", "ay", "az"], "Acceleration", "m/s²", eventTimes) +
         linePlot(im.t, [im.gx, im.gy, im.gz], ["#e67e22", "#8e44ad", "#16a085"], ["gx", "gy", "gz"], "Gyroscope", "rad/s") +
+        hitNote +
         `<span class="muted">${p.n_samples} samples · ${new Date(p.ts * 1000).toLocaleString()}</span>`;
     };
     window.__rsRenderPass = (i) => draw(parseInt(i, 10));
