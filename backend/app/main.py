@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal, init_db
 from .models import Device, RawBatch, SegmentObservation, SegmentState
-from .pipeline import process_batch
+from .pipeline import _load_payload, process_batch
 from .schemas import BatchAck, BatchUpload, DeviceCreate, DeviceOut
 from . import segmentation as seg
 from .storage import get_store
@@ -312,6 +312,63 @@ def get_raw_batch(batch_id: str, db: Session = Depends(get_db)) -> Response:
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{batch_id}.json"'},
     )
+
+
+@app.get("/v1/segments/{segment_key}/raw")
+def get_segment_raw(segment_key: str, limit: int = 200, db: Session = Depends(get_db)) -> dict:
+    """Per-segment raw sensor data: every pass's actual IMU+GPS samples, sliced
+    from the immutable batch archive via the stored index range. This is what a
+    backend process needs to run per-segment Bayesian statistics on real data."""
+    if db.get(SegmentState, segment_key) is None:
+        raise HTTPException(status_code=404, detail="unknown segment")
+    rows = (
+        db.execute(
+            select(SegmentObservation)
+            .where(SegmentObservation.segment_key == segment_key)
+            .order_by(SegmentObservation.ts.desc())
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
+    cache: dict[str, dict] = {}
+    passes = []
+    for o in rows:
+        batch = db.get(RawBatch, o.batch_id)
+        if batch is None:
+            continue
+        payload = cache.get(o.batch_id)
+        if payload is None:
+            try:
+                payload = _load_payload(get_store().get(batch.storage_key))
+            except FileNotFoundError:
+                continue
+            cache[o.batch_id] = payload
+        imu = payload.get("imu", {})
+        t = imu.get("t", [])
+        s, e = o.sample_start, min(o.sample_end, len(t))
+        if e <= s:
+            continue
+        imu_slice = {k: imu.get(k, [])[s:e] for k in ("t", "ax", "ay", "az", "gx", "gy", "gz")}
+        t0, t1 = t[s], t[e - 1]
+        gps = [g for g in payload.get("gps", []) if t0 <= g.get("t", 0) <= t1]
+        passes.append(
+            {
+                "batch_id": o.batch_id,
+                "device_id": o.device_id,
+                "ts": o.ts,
+                "sample_range": [o.sample_start, o.sample_end],
+                "n_samples": e - s,
+                "imu": imu_slice,
+                "gps": gps,
+            }
+        )
+    return {
+        "segment_key": segment_key,
+        "n_passes": len(passes),
+        "total_samples": sum(p["n_samples"] for p in passes),
+        "passes": passes,
+    }
 
 
 @app.get("/healthz")

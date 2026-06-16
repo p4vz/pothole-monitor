@@ -34,23 +34,35 @@ NEW_COLUMNS = {
     "loc_weight": "DOUBLE PRECISION DEFAULT 0",
 }
 
+# Raw-sample index range added to segment_observations for per-segment raw access.
+NEW_COLUMNS_BY_TABLE = {
+    "segment_state": NEW_COLUMNS,
+    "segment_observations": {
+        "sample_start": "INTEGER DEFAULT 0",
+        "sample_end": "INTEGER DEFAULT 0",
+    },
+}
+
 
 def migrate() -> None:
     init_db()  # create any missing tables first
     inspector = inspect(engine)
-    if "segment_state" not in inspector.get_table_names():
-        print("segment_state table absent — created fresh by init_db(); nothing to migrate.")
-        return
-    existing = {c["name"] for c in inspector.get_columns("segment_state")}
-    missing = {k: v for k, v in NEW_COLUMNS.items() if k not in existing}
-    if not missing:
-        print("schema up to date — no columns to add.")
-        return
-    with engine.begin() as conn:
-        for name, ddl in missing.items():
-            conn.execute(text(f"ALTER TABLE segment_state ADD COLUMN {name} {ddl}"))
-            print(f"added segment_state.{name}")
-    print(f"migration complete ({len(missing)} columns added).")
+    tables = set(inspector.get_table_names())
+    total = 0
+    for table, columns in NEW_COLUMNS_BY_TABLE.items():
+        if table not in tables:
+            print(f"{table} absent — created fresh by init_db(); nothing to migrate.")
+            continue
+        existing = {c["name"] for c in inspector.get_columns(table)}
+        missing = {k: v for k, v in columns.items() if k not in existing}
+        if not missing:
+            continue
+        with engine.begin() as conn:
+            for name, ddl in missing.items():
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                print(f"added {table}.{name}")
+        total += len(missing)
+    print(f"migration complete ({total} columns added)." if total else "schema up to date — no columns to add.")
 
 
 if __name__ == "__main__":

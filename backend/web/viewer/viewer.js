@@ -67,7 +67,8 @@ async function showDetail(segmentKey) {
         <tr><td>Passes / devices</td><td>${d.n_passes} / ${d.n_devices}</td></tr>
       </table>
       ${sparkline(series)}
-      <span class="muted">${d.history.length} passes · last ${new Date(d.last_seen).toLocaleString()}</span>`;
+      <span class="muted">${d.history.length} passes · last ${new Date(d.last_seen).toLocaleString()}</span>
+      <div style="margin-top:8px"><a href="${API}/v1/segments/${segmentKey}/raw" target="_blank">download raw sensor data →</a></div>`;
   } catch (err) {
     el.innerHTML = `<span class="muted">error: ${err.message}</span>`;
   }

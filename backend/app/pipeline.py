@@ -53,6 +53,8 @@ def process_batch(batch_id: str) -> int:
                         quality=obs.quality,
                         centroid_lat=obs.centroid_lat,
                         centroid_lng=obs.centroid_lng,
+                        sample_start=obs.sample_start,
+                        sample_end=obs.sample_end,
                     )
                 )
                 session.flush()

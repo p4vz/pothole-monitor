@@ -74,3 +74,26 @@ def test_segment_detail_has_history(client):
     detail = client.get(f"/v1/segments/{key}").json()
     assert detail["n_passes"] >= 1
     assert isinstance(detail["history"], list) and detail["history"]
+
+
+def test_segment_raw_returns_actual_samples(client):
+    """Per-segment raw must yield the real IMU samples for that segment, sliced
+    from the batch — what a per-segment Bayesian process consumes."""
+    token = _register(client)
+    batch = make_batch("api-raw", "devX", potholes=[(5.0, 9.0), (5.1, 9.0)], seed=3)
+    client.post("/v1/batches", content=json.dumps(batch).encode(), headers={"X-Device-Token": token})
+    # Pick the segment with the most events (where the pothole is).
+    feats = client.get("/v1/segments").json()["features"]
+    key = max(feats, key=lambda f: f["properties"]["roughness_score"])["properties"]["segment_key"]
+
+    raw = client.get(f"/v1/segments/{key}/raw").json()
+    assert raw["n_passes"] >= 1
+    p = raw["passes"][0]
+    # The slice carries real, length-consistent IMU arrays + a time range.
+    n = p["n_samples"]
+    assert n > 0
+    assert len(p["imu"]["az"]) == n == len(p["imu"]["t"]) == len(p["imu"]["gz"])
+    assert p["sample_range"][1] - p["sample_range"][0] >= n
+    assert raw["total_samples"] >= n
+
+    assert client.get("/v1/segments/nope/raw").status_code == 404

@@ -39,6 +39,8 @@ class Observation:
     yaw_out: float = 0.0       # peak + yaw rate (steer one way)
     yaw_back: float = 0.0      # peak - yaw rate magnitude (steer back)
     lateral_rms: float = 0.0   # mean lateral acceleration (evasion)
+    sample_start: int = 0      # raw sample index range [start, end) for this pass,
+    sample_end: int = 0        # so the segment's raw sensor data is addressable
 
 
 @dataclass
@@ -60,6 +62,8 @@ class WindowFeat:
     yaw_max: float = 0.0       # max + yaw rate (rad/s) about the gravity axis
     yaw_min: float = 0.0       # max - yaw rate; both large => steer out-and-back
     lateral_rms: float = 0.0   # horizontal (cross-track) linear accel RMS
+    i0: int = 0                # raw sample index range [i0, i1) this window covers
+    i1: int = 0
 
     def vector(self) -> list[float]:
         """Feature vector for ML (order matches ml.FEATURE_NAMES)."""
@@ -232,6 +236,8 @@ def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
                 yaw_max=float(np.max(y)),
                 yaw_min=float(np.min(y)),
                 lateral_rms=float(np.sqrt(np.mean(lateral[sl] ** 2))),
+                i0=int(start),
+                i1=int(start + win),
             )
         )
     return windows
@@ -257,6 +263,7 @@ def analyze(payload: dict, cfg=settings, scorer=None) -> list[Observation]:
                 h3=h3idx, bucket=bucket, rms=[], events=0, sev=0,
                 speed=[], qual=[], lat=[], lng=[], ts=[],
                 peak=0.0, yaw_out=0.0, yaw_back=0.0, lat_rms=[],
+                i0=w.i0, i1=w.i1,
             )
             groups[key] = g
         g["rms"].append(w.rms)
@@ -271,6 +278,8 @@ def analyze(payload: dict, cfg=settings, scorer=None) -> list[Observation]:
         g["yaw_out"] = max(g["yaw_out"], w.yaw_max)
         g["yaw_back"] = max(g["yaw_back"], -w.yaw_min)
         g["lat_rms"].append(w.lateral_rms)
+        g["i0"] = min(g["i0"], w.i0)
+        g["i1"] = max(g["i1"], w.i1)
 
     out: list[Observation] = []
     for key, g in groups.items():
@@ -291,6 +300,8 @@ def analyze(payload: dict, cfg=settings, scorer=None) -> list[Observation]:
                 yaw_out=float(g["yaw_out"]),
                 yaw_back=float(g["yaw_back"]),
                 lateral_rms=float(np.mean(g["lat_rms"])),
+                sample_start=int(g["i0"]),
+                sample_end=int(g["i1"]),
             )
         )
     return out

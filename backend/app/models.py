@@ -73,6 +73,11 @@ class SegmentObservation(Base):
     quality: Mapped[float] = mapped_column(Float)
     centroid_lat: Mapped[float] = mapped_column(Float)
     centroid_lng: Mapped[float] = mapped_column(Float)
+    # Raw sample index range [sample_start, sample_end) into the batch's IMU
+    # arrays for this pass, so the segment's raw sensor data is addressable
+    # (reconstructed on demand from the immutable batch blob).
+    sample_start: Mapped[int] = mapped_column(Integer, default=0)
+    sample_end: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class SegmentState(Base):
