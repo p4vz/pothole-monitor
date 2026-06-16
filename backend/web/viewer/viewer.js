@@ -167,6 +167,35 @@ async function showDetail(segmentKey) {
   }
 }
 
+let markerLayer = null;
+
+// Precise pothole markers: a dot at the Bayesian sub-cell location with a faint
+// accuracy circle (radius = location_spread_m). The coarse hex is the tile; the
+// dot is where the defect actually is.
+function drawMarkers(geojson) {
+  if (markerLayer) markerLayer.remove();
+  markerLayer = L.layerGroup();
+  for (const f of geojson.features) {
+    const p = f.properties;
+    const loc = p.estimated_location;
+    if (!p.loc_weight || !loc || (loc[0] === 0 && loc[1] === 0)) continue;
+    const color = SEVERITY_COLOR[p.severity_class] || "#999";
+    if (p.location_spread_m > 0) {
+      L.circle(loc, {
+        radius: Math.min(p.location_spread_m, 40),
+        color, weight: 1, opacity: 0.4, fillOpacity: 0.05,
+      }).addTo(markerLayer);
+    }
+    L.circleMarker(loc, {
+      radius: 5, color: "#222", weight: 1, fillColor: color, fillOpacity: 0.95,
+    })
+      .on("click", () => showDetail(p.segment_key))
+      .bindTooltip(`${p.intensity_class} · ${(p.pothole_probability * 100).toFixed(0)}% pothole`)
+      .addTo(markerLayer);
+  }
+  markerLayer.addTo(map);
+}
+
 async function refresh() {
   const b = map.getBounds();
   const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
@@ -182,6 +211,7 @@ async function refresh() {
       onEachFeature: (f, l) =>
         l.on("click", () => showDetail(f.properties.segment_key)),
     }).addTo(map);
+    drawMarkers(geojson);
     status.textContent = `${geojson.features.length} segments`;
   } catch (err) {
     status.textContent = `error: ${err.message} (API: ${API})`;

@@ -181,6 +181,10 @@ def get_segments(
                     "trend": s.trend,
                     "n_passes": s.n_passes,
                     "n_devices": s.n_devices,
+                    # Precise sub-cell pothole marker (point + uncertainty radius).
+                    "estimated_location": [s.loc_lat, s.loc_lng],
+                    "location_spread_m": round((s.loc_var_m2 or 0.0) ** 0.5, 1),
+                    "loc_weight": round(s.loc_weight, 2),
                     "last_seen": s.last_seen.replace(tzinfo=timezone.utc).isoformat(),
                 },
             }

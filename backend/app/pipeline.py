@@ -37,7 +37,13 @@ def reprocess_all() -> dict:
         session.execute(delete(SegmentState))
         session.execute(update(RawBatch).values(status="pending", processed_at=None, error=None))
         session.commit()
-        ids = list(session.execute(select(RawBatch.id)).scalars())
+        # Process chronologically so recency-decay/trend reproduce live state
+        # (live ingestion is time-ordered; id order is not).
+        ids = list(
+            session.execute(
+                select(RawBatch.id).order_by(RawBatch.t_start, RawBatch.received_at)
+            ).scalars()
+        )
     finally:
         session.close()
 

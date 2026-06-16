@@ -202,6 +202,15 @@ def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
     heading = _interp_heading(t, gt, np.asarray([g.get("heading", 0.0) for g in gps], float))
     acc = _interp(t, gt, np.asarray([g.get("acc", 0.0) for g in gps], float))
 
+    # --- GPS lever-arm: a fix is reported slightly late, so each position lags
+    # the true spot by speed*latency along the heading. Shift it back so passes
+    # at different speeds register to the same place (before segmentation). ---
+    if cfg.gps_latency_s > 0:
+        dist = np.clip(np.nan_to_num(speed, nan=0.0), 0.0, None) * cfg.gps_latency_s
+        hdg = np.radians(heading)
+        lat = lat - (dist * np.cos(hdg)) / 111_111.0
+        lng = lng - (dist * np.sin(hdg)) / (111_111.0 * np.cos(np.radians(np.nan_to_num(lat))))
+
     # --- reorient: gravity via low-pass, remove it, project onto road-normal ---
     n_lp = max(1, int(cfg.gravity_lp_seconds * fs))
     grav = _moving_average(a, n_lp)

@@ -39,7 +39,11 @@ class Settings(BaseSettings):
     model_path: str = ""
 
     # --- Segmentation (H3 hex grid + heading bucket) ---
-    h3_resolution: int = 12          # ~3-10 m edge; res 13 for finer lanes
+    # Aggregation tile resolution. Res 11 (~25 m) is deliberately coarser than
+    # GPS noise so repeat passes over one defect land in the SAME segment and
+    # reinforce; the precise pothole comes from the Bayesian sub-cell location
+    # (loc_lat/lng) and event clustering, not the cell.
+    h3_resolution: int = 11
     heading_buckets: int = 8         # split opposite directions / lanes
 
     # --- Collector defaults (advertised to the app) ---
@@ -56,6 +60,14 @@ class Settings(BaseSettings):
     gravity_lp_seconds: float = 1.0  # low-pass span for gravity estimate
     event_peak_thresh: float = 2.5   # m/s^2 linear-vertical peak => candidate defect
     min_window_quality: float = 0.5  # fraction of good samples to keep a window
+    # GPS reports a fix slightly late, so a jolt is logged behind where it
+    # happened (lag x speed: ~14 m at 50 km/h). Shift fixes back along heading by
+    # this much before segmentation/localization. Device-dependent; tune later.
+    gps_latency_s: float = 0.3
+
+    # --- Defect clustering (Phase 3) ---
+    defect_cluster_res: int = 13     # ~3.5 m H3 cells used to bin event points
+    defect_cluster_k: int = 2        # union event cells within this k-ring
 
     # --- Aggregation ("state of the road") ---
     defect_roughness_thresh: float = 1.2  # roughness above this also counts as a defect
