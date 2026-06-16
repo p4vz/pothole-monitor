@@ -59,17 +59,17 @@
           <canvas id="plotAccel"></canvas>
           <div id="potholeBadge" class="pothole-badge">⚠ POTHOLE</div>
         </div>
-        <div class="legend"><b class="dotx">●</b> ax &nbsp; <b class="doty">●</b> ay &nbsp; <b class="dotz">●</b> az</div>
+        <div class="legend"><b class="dotx">●</b> ax &nbsp; <b class="doty">●</b> ay &nbsp; <b class="dotz">●</b> az &nbsp; <b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b> |a|</div>
         <div class="plotwrap" style="margin-top:12px">
           <div class="axislabel">gyro rad/s</div>
           <canvas id="plotGyro"></canvas>
         </div>
-        <div class="legend"><b class="dotx">●</b> gx &nbsp; <b class="doty">●</b> gy &nbsp; <b class="dotz">●</b> gz</div>
+        <div class="legend"><b class="dotx">●</b> gx &nbsp; <b class="doty">●</b> gy &nbsp; <b class="dotz">●</b> gz &nbsp; <b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b> |g|</div>
         <div class="plotwrap" style="margin-top:12px">
-          <div class="axislabel">mag μT</div>
+          <div class="axislabel" id="magAxis">mag μT</div>
           <canvas id="plotMag"></canvas>
         </div>
-        <div class="legend"><b class="dotx">●</b> mx &nbsp; <b class="doty">●</b> my &nbsp; <b class="dotz">●</b> mz <span id="magNote" style="color:#999"></span></div>
+        <div class="legend"><span id="magLegend"><b class="dotx">●</b> mx &nbsp; <b class="doty">●</b> my &nbsp; <b class="dotz">●</b> mz &nbsp; <b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b> |m|</span> <span id="magNote" style="color:#999"></span></div>
       </div>
 
       <div class="card">

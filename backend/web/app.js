@@ -12,6 +12,7 @@
   // ---- tiny DOM helpers ----
   var $ = function (id) { return document.getElementById(id); };
   function set(id, txt) { var el = $(id); if (el) el.textContent = txt; }
+  function setHTML(id, html) { var el = $(id); if (el) el.innerHTML = html; }
   function log(msg) {
     var el = $("log");
     if (el) el.textContent = (new Date().toLocaleTimeString() + "  " + msg + "\n" + el.textContent).slice(0, 2000);
@@ -75,35 +76,60 @@
   var soundEnabled = false;  // audible ding is opt-in (off by default, stays silent)
   var audioCtx = null;  // created only when the user ticks the sound checkbox
   var drawReq = null;
-  var magSensor = null; // Generic Sensor Magnetometer (compass), if supported
+  var magSensor = null; // Generic Sensor Magnetometer (compass), Chromium-only
   var lastMag = null;   // latest {x,y,z} microtesla reading, held between samples
+  var orientHandler = null, orientEv = null;
+  var lastOri = null;   // latest device orientation {a,b,g} degrees (iOS/fallback)
+  var orientGranted = true;  // iOS DeviceOrientation permission
+  var sawMag = false, sawOri = false;  // which compass source actually produced data
+  var compassLabeled = false;
 
   function freshBatch() {
-    imu = { t: [], ax: [], ay: [], az: [], gx: [], gy: [], gz: [], mx: [], my: [], mz: [] };
+    imu = { t: [], ax: [], ay: [], az: [], gx: [], gy: [], gz: [],
+            mx: [], my: [], mz: [], oa: [], ob: [], og: [] };
     gps = [];
   }
 
-  // ---- magnetometer (compass) in 3D: separate sensor stream; hold latest reading
-  // and sample-align it to the motion samples. Graceful no-op where unsupported. ----
-  function startMagnetometer() {
-    lastMag = null;
-    try {
-      if (typeof Magnetometer === "undefined") { log("compass: no magnetometer sensor"); return; }
-      magSensor = new Magnetometer({ frequency: 50, referenceFrame: "device" });
-      magSensor.addEventListener("reading", function () {
-        lastMag = { x: magSensor.x, y: magSensor.y, z: magSensor.z };
-      });
-      magSensor.addEventListener("error", function (e) {
-        log("compass error: " + ((e.error && e.error.name) || "unavailable"));
-        try { magSensor.stop(); } catch (_) {} magSensor = null;
-      });
-      magSensor.start();
-      log("compass: magnetometer started");
-    } catch (e) { log("compass unavailable: " + e.message); magSensor = null; }
+  // ---- compass in 3D ----
+  // Primary: raw 3-axis Magnetometer (microtesla) via Generic Sensor API — only
+  // on Chromium + secure context. Fallback: DeviceOrientation (heading/pitch/roll
+  // in degrees) which works on iOS and older Android. We capture whichever is
+  // available (both, if possible) and plot the live source.
+  function startCompass() {
+    lastMag = null; lastOri = null;
+    if (typeof Magnetometer !== "undefined" && window.isSecureContext) {
+      try {
+        magSensor = new Magnetometer({ frequency: 30 });
+        magSensor.addEventListener("reading", function () {
+          lastMag = { x: magSensor.x, y: magSensor.y, z: magSensor.z };
+        });
+        magSensor.addEventListener("error", function (ev) {
+          log("compass: magnetometer " + ((ev.error && ev.error.name) || "error") + " → orientation");
+          try { magSensor.stop(); } catch (_) {} magSensor = null;
+        });
+        magSensor.start();
+        log("compass: magnetometer started");
+      } catch (e) { log("compass: magnetometer unavailable (" + e.message + ")"); magSensor = null; }
+    } else {
+      log("compass: no raw magnetometer (using device orientation)");
+    }
+    // Always also listen to orientation: free, broadly supported, useful for heading.
+    if (typeof DeviceOrientationEvent !== "undefined" && (orientGranted || typeof DeviceOrientationEvent.requestPermission !== "function")) {
+      orientHandler = function (e) {
+        if (e.alpha == null && e.beta == null && e.gamma == null) return;
+        lastOri = { a: e.alpha || 0, b: e.beta || 0, g: e.gamma || 0 };
+      };
+      orientEv = ("ondeviceorientationabsolute" in window) ? "deviceorientationabsolute" : "deviceorientation";
+      window.addEventListener(orientEv, orientHandler);
+    } else if (!magSensor) {
+      set("magNote", "— compass unavailable / permission denied");
+    }
   }
-  function stopMagnetometer() {
+  function stopCompass() {
     try { if (magSensor) magSensor.stop(); } catch (e) { /* ignore */ }
     magSensor = null; lastMag = null;
+    if (orientHandler) { window.removeEventListener(orientEv, orientHandler); orientHandler = null; }
+    lastOri = null;
   }
 
   function onMotion(e) {
@@ -116,13 +142,18 @@
     var gx = (r.beta || 0) * d2r, gy = (r.gamma || 0) * d2r, gz = (r.alpha || 0) * d2r;
 
     var mx = lastMag ? lastMag.x : null, my = lastMag ? lastMag.y : null, mz = lastMag ? lastMag.z : null;
+    var oa = lastOri ? lastOri.a : null, ob = lastOri ? lastOri.b : null, og = lastOri ? lastOri.g : null;
+    if (lastMag) sawMag = true;
+    if (lastOri) sawOri = true;
 
     imu.t.push(t);
     imu.ax.push(a.x); imu.ay.push(a.y); imu.az.push(a.z);
     imu.gx.push(gx); imu.gy.push(gy); imu.gz.push(gz);
     imu.mx.push(mx); imu.my.push(my); imu.mz.push(mz);
+    imu.oa.push(oa); imu.ob.push(ob); imu.og.push(og);
 
-    live.push({ t: t, ax: a.x, ay: a.y, az: a.z, gx: gx, gy: gy, gz: gz, mx: mx, my: my, mz: mz });
+    live.push({ t: t, ax: a.x, ay: a.y, az: a.z, gx: gx, gy: gy, gz: gz,
+                mx: mx, my: my, mz: mz, oa: oa, ob: ob, og: og });
 
     // Orientation-free vertical jolt: EMA gravity -> linear accel projected on
     // gravity. A peak above threshold is a candidate pothole (debounced 0.6 s).
@@ -187,8 +218,14 @@
     ctx.clearRect(0, 0, W, H);
     var maxv = 0, i, k;
     for (i = 0; i < live.length; i++) {
-      if (live[i].t < t0) continue;
-      for (k = 0; k < keys.length; k++) { var av = Math.abs(live[i][keys[k]]); if (av > maxv) maxv = av; }
+      var s0 = live[i]; if (s0.t < t0) continue;
+      var sq0 = 0, ok0 = true;
+      for (k = 0; k < keys.length; k++) {
+        var vv = s0[keys[k]];
+        if (vv == null) { ok0 = false; continue; }
+        var av = Math.abs(vv); if (av > maxv) maxv = av; sq0 += vv * vv;
+      }
+      if (ok0) { var mg0 = Math.sqrt(sq0); if (mg0 > maxv) maxv = mg0; }  // magnitude curve
     }
     var span = Math.max(maxv * 1.1, floorSpan);
     function X(t) { return ((t - t0) / (t1 - t0)) * W; }
@@ -212,6 +249,18 @@
       }
       ctx.stroke();
     }
+    // 4th curve: vector magnitude sqrt(x²+y²+z²), in white.
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.2 * dpr; ctx.beginPath();
+    var startedM = false;
+    for (i = 0; i < live.length; i++) {
+      var s = live[i]; if (s.t < t0) continue;
+      var sq = 0, ok = true;
+      for (k = 0; k < keys.length; k++) { var v2 = s[keys[k]]; if (v2 == null) { ok = false; break; } sq += v2 * v2; }
+      if (!ok) { startedM = false; continue; }
+      var xm = X(s.t), ym = Y(Math.sqrt(sq));
+      if (!startedM) { ctx.moveTo(xm, ym); startedM = true; } else ctx.lineTo(xm, ym);
+    }
+    ctx.stroke();
     ctx.fillStyle = "#7a8694"; ctx.font = (10 * dpr) + "px system-ui"; ctx.textAlign = "right";
     ctx.fillText("±" + span.toFixed(1), W - 4 * dpr, 12 * dpr);
   }
@@ -222,7 +271,15 @@
     while (pings.length && pings[0].t < t0) pings.shift();
     drawSeries($("plotAccel"), ["ax", "ay", "az"], now, 4);
     drawSeries($("plotGyro"), ["gx", "gy", "gz"], now, 1);
-    drawSeries($("plotMag"), ["mx", "my", "mz"], now, 20);
+    // Compass: prefer raw magnetometer (µT); else device orientation (°).
+    if (sawMag) drawSeries($("plotMag"), ["mx", "my", "mz"], now, 20);
+    else drawSeries($("plotMag"), ["oa", "ob", "og"], now, 90);
+    if (!compassLabeled && (sawMag || sawOri)) {
+      compassLabeled = true;
+      var W = '<b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b>';
+      if (sawMag) { set("magAxis", "mag µT"); setHTML("magLegend", '<b class="dotx">●</b> mx &nbsp; <b class="doty">●</b> my &nbsp; <b class="dotz">●</b> mz &nbsp; ' + W + ' |m|'); }
+      else { set("magAxis", "orient °"); setHTML("magLegend", '<b class="dotx">●</b> α &nbsp; <b class="doty">●</b> β &nbsp; <b class="dotz">●</b> γ &nbsp; ' + W + ' |o|'); set("magNote", "— device orientation (no raw magnetometer)"); }
+    }
     set("potCount", potCount ? potCount + (potCount === 1 ? " pothole" : " potholes") : "");
     drawReq = requestAnimationFrame(drawLive);
   }
@@ -244,6 +301,7 @@
     // Drop compass arrays entirely if no real readings (unsupported device),
     // rather than uploading aligned null-filled columns.
     if (!imu.mx.some(function (v) { return v != null; })) { delete imu.mx; delete imu.my; delete imu.mz; }
+    if (!imu.oa.some(function (v) { return v != null; })) { delete imu.oa; delete imu.ob; delete imu.og; }
     var token = localStorage.getItem("rs_token") || "anon";
     var batch = {
       batch_id: token.slice(0, 8) + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
@@ -302,6 +360,12 @@
       var state = await DeviceMotionEvent.requestPermission();
       if (state !== "granted") throw new Error("motion permission denied");
     }
+    // iOS also gates DeviceOrientation (our compass fallback) behind a prompt —
+    // ask now, within the Start tap's user gesture.
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+      try { orientGranted = (await DeviceOrientationEvent.requestPermission()) === "granted"; }
+      catch (e) { orientGranted = false; }
+    }
   }
 
   async function start() {
@@ -313,10 +377,11 @@
       lastFix = null;
       sessionId = "web-" + Date.now();
       live = []; pings = []; gEma = null; potCount = 0;
+      sawMag = false; sawOri = false; compassLabeled = false;
 
       motionHandler = onMotion;
       window.addEventListener("devicemotion", motionHandler);
-      startMagnetometer();
+      startCompass();
       geoWatch = navigator.geolocation.watchPosition(onPosition, function (e) { log("gps error: " + e.message); },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
 
@@ -341,7 +406,7 @@
     recording = false;
     if (motionHandler) window.removeEventListener("devicemotion", motionHandler);
     if (geoWatch != null) navigator.geolocation.clearWatch(geoWatch);
-    stopMagnetometer();
+    stopCompass();
     clearInterval(batchTimer); clearInterval(uiTimer);
     if (drawReq) cancelAnimationFrame(drawReq); drawReq = null;
     if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
@@ -358,7 +423,6 @@
   window.addEventListener("online", flush);
   document.addEventListener("DOMContentLoaded", function () {
     set("api", API);
-    if (typeof Magnetometer === "undefined") set("magNote", "— no compass sensor on this device");
     $("toggle").addEventListener("click", function () { recording ? stop() : start(); });
     // Audible ding is opt-in. Ticking the box is the user gesture that lets the
     // browser create/resume audio (it may prompt); unticking goes silent again.

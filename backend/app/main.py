@@ -410,7 +410,7 @@ def get_segment_raw(segment_key: str, limit: int = 200, db: Session = Depends(ge
         if e <= s:
             skipped["no_sample_range"] += 1  # ingested before sample ranges existed
             continue
-        imu_keys = ("t", "ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz")
+        imu_keys = ("t", "ax", "ay", "az", "gx", "gy", "gz", "mx", "my", "mz", "oa", "ob", "og")
         imu_slice = {k: imu.get(k, [])[s:e] for k in imu_keys if imu.get(k)}
         t0, t1 = t[s], t[e - 1]
         gps = [g for g in payload.get("gps", []) if t0 <= g.get("t", 0) <= t1]

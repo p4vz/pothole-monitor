@@ -35,6 +35,11 @@ class ImuBlock(BaseModel):
     mx: list[float | None] | None = None
     my: list[float | None] | None = None
     mz: list[float | None] | None = None
+    # Device orientation (compass fallback / complement): alpha/beta/gamma degrees
+    # (heading / pitch / roll), absolute where the platform provides it.
+    oa: list[float | None] | None = None
+    ob: list[float | None] | None = None
+    og: list[float | None] | None = None
 
 
 class BatchMeta(BaseModel):
