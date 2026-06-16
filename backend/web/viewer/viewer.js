@@ -44,6 +44,81 @@ function sparkline(values, w = 220, h = 40) {
     <polyline fill="none" stroke="#e67e22" stroke-width="1.5" points="${pts}" /></svg>`;
 }
 
+// Multi-line time-series plot (value vs seconds-from-start), dependency-free SVG.
+function linePlot(t, seriesList, colors, labels, title, unit, w = 300, h = 130) {
+  if (!t || t.length < 2) return `<div class="muted">${title}: not enough samples</div>`;
+  const pad = 26;
+  const t0 = t[0];
+  const xs = t.map((v) => v - t0);
+  const xmax = Math.max(xs[xs.length - 1], 0.001);
+  let ymin = Infinity, ymax = -Infinity;
+  for (const s of seriesList) for (const v of s) { if (v < ymin) ymin = v; if (v > ymax) ymax = v; }
+  if (!isFinite(ymin)) { ymin = -1; ymax = 1; }
+  if (ymin === ymax) { ymin -= 1; ymax += 1; }
+  const X = (x) => pad + (x / xmax) * (w - 2 * pad);
+  const Y = (y) => pad + (1 - (y - ymin) / (ymax - ymin)) * (h - 2 * pad);
+  const lines = seriesList
+    .map((s, i) => {
+      const pts = s.map((v, j) => `${X(xs[j]).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+      return `<polyline fill="none" stroke="${colors[i]}" stroke-width="1" points="${pts}"/>`;
+    })
+    .join("");
+  const zeroY = ymin <= 0 && ymax >= 0 ? Y(0) : null;
+  const legend = labels
+    .map((l, i) => `<tspan fill="${colors[i]}" font-weight="700"> ${l}</tspan>`)
+    .join("");
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block;margin:4px 0;background:#fafbfc;border-radius:6px">
+    <text x="${pad}" y="13" font-size="10" fill="#333">${title} (${unit})</text>
+    <text x="${w - 4}" y="13" font-size="10" text-anchor="end">${legend}</text>
+    ${zeroY !== null ? `<line x1="${pad}" y1="${zeroY.toFixed(1)}" x2="${w - pad}" y2="${zeroY.toFixed(1)}" stroke="#e3e3e3"/>` : ""}
+    <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" stroke="#ccc"/>
+    <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${h - pad}" stroke="#ccc"/>
+    <text x="3" y="${pad + 4}" font-size="9" fill="#999">${ymax.toFixed(1)}</text>
+    <text x="3" y="${h - pad}" font-size="9" fill="#999">${ymin.toFixed(1)}</text>
+    <text x="${pad}" y="${h - 6}" font-size="9" fill="#999">0s</text>
+    <text x="${w - pad}" y="${h - 6}" font-size="9" fill="#999" text-anchor="end">${xmax.toFixed(1)}s</text>
+    ${lines}
+  </svg>`;
+}
+
+// Holds the raw passes for the open segment so the pass selector can re-render.
+let rawPasses = [];
+
+async function loadRawPlots(segmentKey) {
+  const box = document.getElementById("rawPlots");
+  if (!box) return;
+  try {
+    const raw = await (await fetch(`${API}/v1/segments/${segmentKey}/raw`)).json();
+    rawPasses = raw.passes || [];
+    if (!rawPasses.length) {
+      box.innerHTML = `<span class="muted">No raw samples to plot.${raw.note ? " " + raw.note : ""}</span>`;
+      return;
+    }
+    let selector = "";
+    if (rawPasses.length > 1) {
+      const opts = rawPasses
+        .map((p, i) => `<option value="${i}">pass ${i + 1} of ${rawPasses.length}</option>`)
+        .join("");
+      selector = `<select onchange="window.__rsRenderPass(this.value)" style="margin:6px 0">${opts}</select>`;
+    }
+    box.innerHTML = selector + '<div id="rawPlotsInner"></div>';
+    // Re-point renderPass at the inner div so the selector stays put.
+    const inner = document.getElementById("rawPlotsInner");
+    const draw = (i) => {
+      const p = rawPasses[i];
+      const im = p.imu;
+      inner.innerHTML =
+        linePlot(im.t, [im.ax, im.ay, im.az], ["#e74c3c", "#27ae60", "#2a7de1"], ["ax", "ay", "az"], "Acceleration", "m/s²") +
+        linePlot(im.t, [im.gx, im.gy, im.gz], ["#e67e22", "#8e44ad", "#16a085"], ["gx", "gy", "gz"], "Gyroscope", "rad/s") +
+        `<span class="muted">${p.n_samples} samples · ${new Date(p.ts * 1000).toLocaleString()}</span>`;
+    };
+    window.__rsRenderPass = (i) => draw(parseInt(i, 10));
+    draw(0);
+  } catch (err) {
+    box.innerHTML = `<span class="muted">couldn't load sensor traces: ${err.message}</span>`;
+  }
+}
+
 async function showDetail(segmentKey) {
   const el = document.getElementById("detail");
   el.style.display = "block";
@@ -68,7 +143,10 @@ async function showDetail(segmentKey) {
       </table>
       ${sparkline(series)}
       <span class="muted">${d.history.length} passes · last ${new Date(d.last_seen).toLocaleString()}</span>
+      <h2 style="margin-top:10px">Raw sensor traces</h2>
+      <div id="rawPlots" class="muted">loading sensor traces…</div>
       <div style="margin-top:8px"><a href="${API}/v1/segments/${segmentKey}/raw" target="_blank">download raw sensor data →</a></div>`;
+    loadRawPlots(segmentKey);
   } catch (err) {
     el.innerHTML = `<span class="muted">error: ${err.message}</span>`;
   }
