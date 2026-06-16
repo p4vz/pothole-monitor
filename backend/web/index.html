@@ -54,9 +54,8 @@
       </div>
 
       <div class="card">
-        <h1 style="font-size:16px;margin:0 0 4px">Get the mobile app</h1>
-        <div class="muted" style="margin-bottom:8px">Auto-detects driving and captures road data in the background — minimal battery, screen off. No need to keep this page open.</div>
-        <a id="iosLink" class="store" href="#"> iPhone</a>
+        <h1 style="font-size:16px;margin:0 0 4px">Get the Android app</h1>
+        <div class="muted" style="margin-bottom:8px">Notifies you when you're driving — mount your phone, tap to start, and it captures road data in the background. Minimal battery. (iOS later.)</div>
         <a id="androidLink" class="store" href="#">▶ Android</a>
         <div class="muted" id="appNote" style="margin-top:8px"></div>
       </div>
@@ -64,18 +63,17 @@
     <script src="config.js"></script>
     <script src="app.js"></script>
     <script>
-      // Wire the store buttons from CONFIG; show "coming soon" until published.
+      // Wire the Android button from CONFIG; show "coming soon" until published.
       (function () {
         var C = window.CONFIG || {};
-        function wire(id, url) {
-          var a = document.getElementById(id);
-          if (url) { a.href = url; } else { a.classList.add("disabled"); a.href = "#"; }
-        }
-        wire("iosLink", C.APP_IOS_URL);
-        wire("androidLink", C.APP_ANDROID_URL);
-        if (!C.APP_IOS_URL && !C.APP_ANDROID_URL) {
+        var a = document.getElementById("androidLink");
+        if (C.APP_ANDROID_URL) {
+          a.href = C.APP_ANDROID_URL;
+        } else {
+          a.classList.add("disabled");
+          a.href = "#";
           document.getElementById("appNote").textContent =
-            "Apps coming soon — set APP_IOS_URL / APP_ANDROID_URL in config.js once your builds are published. Meanwhile, use this web collector.";
+            "App coming soon — set APP_ANDROID_URL in config.js once your APK / Play listing is live. Meanwhile, use this web collector.";
         }
       })();
     </script>

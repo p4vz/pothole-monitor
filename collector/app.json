@@ -4,15 +4,9 @@
     "slug": "roadsense-collector",
     "version": "1.0.0",
     "orientation": "portrait",
-    "ios": {
-      "infoPlist": {
-        "UIBackgroundModes": ["location", "fetch", "processing"],
-        "NSLocationWhenInUseUsageDescription": "Records your route to map road conditions.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Detects driving and keeps logging road conditions in the background.",
-        "NSMotionUsageDescription": "Reads motion sensors to detect road roughness and potholes."
-      }
-    },
+    "platforms": ["android"],
     "android": {
+      "package": "app.roadsense.collector",
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",

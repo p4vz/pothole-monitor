@@ -16,9 +16,8 @@ window.CONFIG = {
   UPLOAD_RETRY_BASE_MS: 2000,
   UPLOAD_MAX_RETRIES: 4,
 
-  // Native app store links (shown on the page). Leave "" until published — the
-  // button then shows "coming soon". Set to your App Store / Play Store /
-  // TestFlight / APK URLs once the builds are live.
-  APP_IOS_URL: "",
+  // Android app link (shown on the page). Leave "" until published — the button
+  // then shows "coming soon". Set to your Play Store listing or APK URL once the
+  // build is live. (iOS is deferred for now.)
   APP_ANDROID_URL: "",
 };

@@ -1,17 +1,13 @@
-// Automatic drive detection + background capture.
+// Drive detection -> NOTIFY (never auto-start).
 //
-// Battery strategy: while idle we run *low-power* background location only
-// (Balanced accuracy, wakes roughly every DETECT_DISTANCE_M of movement). When
-// sustained driving speed is seen we (1) post a local notification, (2) switch
-// location to navigation accuracy, and (3) start the 50 Hz IMU recorder. When
-// the vehicle has been stopped for STOP_GRACE_MS we end the trip, upload, and
-// drop back to low-power detection. High-drain sensors run only while actually
-// driving.
+// The app can't tell whether the phone is mounted in a windscreen holder or
+// loose in a pocket/bag, so auto-capturing would record garbage and false
+// positives. Instead, when sustained driving is detected we send ONE
+// notification; capture only starts when the user taps it (i.e. confirms the
+// phone is mounted). Tapping is the explicit "I'm set up, start mapping" signal.
 //
-// Limitation: sustained background IMU needs the app process alive. The
-// background-location mode (iOS) / foreground service (Android) keeps it alive
-// across a normal trip, but a force-killed app only resumes GPS (no IMU) until
-// reopened. Fully kill-proof IMU needs a custom native module — see README.
+// Battery: while watching we run low-power background location only. The 50 Hz
+// IMU spins up only after the user confirms, and stops when the trip ends.
 import * as TaskManager from "expo-task-manager";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
@@ -23,7 +19,6 @@ import { wifiOnly } from "./settings";
 
 export const DRIVE_TASK = "roadsense-drive-detect";
 
-// Show notifications even when the app is foregrounded.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -32,38 +27,25 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Module-level singletons: the background task and the UI share this state while
-// the JS context is alive.
 let recorder: Recorder | null = null;
-let driving = false;
+let capturing = false;   // 50 Hz recording in progress
+let prompted = false;    // notification sent for the current drive, awaiting tap
 let aboveSince = 0;
 let belowSince = 0;
-const listeners = new Set<(d: boolean) => void>();
+const listeners = new Set<(capturing: boolean) => void>();
 
-export function onDriveStateChange(cb: (driving: boolean) => void): () => void {
+export function onCaptureStateChange(cb: (capturing: boolean) => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
 function emit() {
-  for (const cb of listeners) cb(driving);
+  for (const cb of listeners) cb(capturing);
 }
 
-async function notify(title: string, body: string) {
-  try {
-    await Notifications.scheduleNotificationAsync({ content: { title, body }, trigger: null });
-  } catch {
-    /* notifications optional */
-  }
-}
-
-async function setLocationMode(mode: "detect" | "drive") {
+async function setLocationMode(mode: "detect" | "capture") {
   const opts: Location.LocationTaskOptions =
-    mode === "drive"
-      ? {
-          accuracy: Location.Accuracy.BestForNavigation,
-          distanceInterval: 0,
-          timeInterval: CONFIG.GPS_INTERVAL_MS,
-        }
+    mode === "capture"
+      ? { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 0, timeInterval: CONFIG.GPS_INTERVAL_MS }
       : {
           accuracy: Location.Accuracy.Balanced,
           distanceInterval: CONFIG.DETECT_DISTANCE_M,
@@ -76,64 +58,97 @@ async function setLocationMode(mode: "detect" | "drive") {
     showsBackgroundLocationIndicator: false,
     foregroundService: {
       notificationTitle: "RoadSense",
-      notificationBody:
-        mode === "drive" ? "Capturing road condition…" : "Watching for drives.",
+      notificationBody: mode === "capture" ? "Capturing road condition…" : "Watching for drives.",
     },
   });
 }
 
-async function startDriving() {
-  if (driving) return;
-  driving = true;
+// Detected driving -> prompt the user to confirm the phone is mounted.
+async function promptToCapture() {
+  prompted = true;
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "Driving detected",
+        body: "Mounted your phone? Tap to start mapping road conditions.",
+        data: { action: "start-capture" },
+      },
+      trigger: null,
+    });
+  } catch {
+    /* notifications optional */
+  }
+}
+
+// Called when the user taps the notification (confirms mounted) or taps "start".
+export async function startCaptureConfirmed() {
+  if (capturing) return;
+  capturing = true;
   emit();
-  await notify("Drive detected", "Capturing road condition in the background.");
-  await setLocationMode("drive"); // upgrade GPS accuracy while moving
+  await setLocationMode("capture"); // upgrade GPS to navigation accuracy
   recorder = new Recorder();
-  // Wi-Fi-only: hold batches and sync once at trip end; otherwise upload as they close.
   recorder.onFlush = () => {
-    if (!wifiOnly()) drain();
+    if (!wifiOnly()) drain(); // Wi-Fi-only: hold until trip end
   };
   await recorder.start({ withGps: false }); // GPS arrives via the background task
 }
 
-async function stopDriving() {
-  if (!driving) return;
-  driving = false;
+async function endCapture() {
+  if (!capturing) return;
+  capturing = false;
   emit();
   await recorder?.stop();
   recorder = null;
   drain();
-  await setLocationMode("detect"); // back to low power
-  await notify("Trip saved", "Road data uploaded — thanks for contributing.");
+  await setLocationMode("detect");
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: { title: "Trip saved", body: "Road data uploaded — thanks for contributing." },
+      trigger: null,
+    });
+  } catch {
+    /* optional */
+  }
 }
 
-// The background location task: fed GPS fixes by the OS even when backgrounded.
+// Tapping the notification starts capture (registered once, app-wide).
+Notifications.addNotificationResponseReceivedListener((resp) => {
+  if (resp.notification.request.content.data?.action === "start-capture") {
+    startCaptureConfirmed();
+  }
+});
+
+// Background location task: fed fixes by the OS even when backgrounded.
 TaskManager.defineTask(DRIVE_TASK, async ({ data, error }) => {
   if (error) return;
   const locs = (data as { locations?: Location.LocationObject[] })?.locations;
   if (!locs?.length) return;
   const now = Date.now();
   for (const loc of locs) {
-    recorder?.addGps(loc); // feed the active trip
+    if (capturing) recorder?.addGps(loc); // feed the active trip
     const speed = loc.coords.speed ?? 0;
     if (speed >= CONFIG.DRIVE_SPEED_MPS) {
       belowSince = 0;
       if (!aboveSince) aboveSince = now;
-      if (!driving && now - aboveSince >= CONFIG.DRIVE_CONFIRM_MS) await startDriving();
+      // Sustained driving -> notify once (only the user knows if it's mounted).
+      if (!capturing && !prompted && now - aboveSince >= CONFIG.DRIVE_CONFIRM_MS) {
+        await promptToCapture();
+      }
     } else {
       aboveSince = 0;
-      if (driving) {
-        if (!belowSince) belowSince = now;
-        if (now - belowSince >= CONFIG.STOP_GRACE_MS) await stopDriving();
+      if (!belowSince) belowSince = now;
+      if (now - belowSince >= CONFIG.STOP_GRACE_MS) {
+        if (capturing) await endCapture();
+        prompted = false; // a new drive will prompt again
       }
     }
   }
 });
 
-export async function enableAutoCapture(): Promise<boolean> {
+export async function enableDriveDetection(): Promise<boolean> {
   const fg = await Location.requestForegroundPermissionsAsync();
   if (fg.status !== "granted") return false;
-  await Location.requestBackgroundPermissionsAsync(); // "Always" for background trips
+  await Location.requestBackgroundPermissionsAsync();
   await Notifications.requestPermissionsAsync();
   if (!(await Location.hasStartedLocationUpdatesAsync(DRIVE_TASK))) {
     await setLocationMode("detect");
@@ -141,17 +156,23 @@ export async function enableAutoCapture(): Promise<boolean> {
   return true;
 }
 
-export async function disableAutoCapture(): Promise<void> {
-  if (driving) await stopDriving();
+export async function disableDriveDetection(): Promise<void> {
+  if (capturing) await endCapture();
+  prompted = false;
   if (await Location.hasStartedLocationUpdatesAsync(DRIVE_TASK)) {
     await Location.stopLocationUpdatesAsync(DRIVE_TASK);
   }
 }
 
-export async function isAutoCaptureEnabled(): Promise<boolean> {
+export async function isDriveDetectionEnabled(): Promise<boolean> {
   return Location.hasStartedLocationUpdatesAsync(DRIVE_TASK);
 }
 
-export function isDriving(): boolean {
-  return driving;
+export function isCapturing(): boolean {
+  return capturing;
+}
+
+// Manual "stop capture" from the UI.
+export async function stopCapture(): Promise<void> {
+  await endCapture();
 }

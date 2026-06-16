@@ -2,9 +2,9 @@
 // in-memory batch. On each batch close (every CONFIG.BATCH_SECONDS) the columnar
 // arrays are flushed to the SQLite buffer and a fresh batch is started.
 //
-// NOTE: sustained background high-rate IMU is OS-restricted. Drive this from an
-// explicit "trip" the user starts/stops, backed by a foreground service
-// (Android) / background-location mode (iOS). See app.json + README.
+// NOTE: sustained background high-rate IMU is OS-restricted. On Android an
+// active-trip foreground service (see app.json + README) keeps sensors alive
+// with the screen off.
 import { Accelerometer, Gyroscope } from "expo-sensors";
 import * as Location from "expo-location";
 

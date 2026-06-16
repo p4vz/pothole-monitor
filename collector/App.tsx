@@ -1,5 +1,7 @@
-// RoadSense collector UI. Two modes:
-//  • Auto-capture — detects driving and records in the background (battery-light).
+// RoadSense collector UI (Android).
+//  • Drive detection — notifies you when you appear to be driving; tap the
+//    notification (once the phone is mounted) to start capturing in the
+//    background. Never auto-starts, so an unmounted phone won't record garbage.
 //  • Manual trip — start/stop an explicit recording.
 import React, { useEffect, useRef, useState } from "react";
 import { Text, TouchableOpacity, View, StyleSheet, Switch, AppState } from "react-native";
@@ -10,16 +12,17 @@ import { Recorder } from "./src/sensors";
 import { drain } from "./src/uploader";
 import { loadSettings, wifiOnly, setWifiOnly } from "./src/settings";
 import {
-  enableAutoCapture,
-  disableAutoCapture,
-  isAutoCaptureEnabled,
-  onDriveStateChange,
+  enableDriveDetection,
+  disableDriveDetection,
+  isDriveDetectionEnabled,
+  onCaptureStateChange,
+  stopCapture,
 } from "./src/driveDetect";
 
 export default function App() {
-  const [auto, setAuto] = useState(false);
+  const [detect, setDetect] = useState(false);
   const [wifi, setWifi] = useState(false);
-  const [driving, setDriving] = useState(false);
+  const [autoCapturing, setAutoCapturing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [samples, setSamples] = useState(0);
   const recorder = useRef<Recorder | null>(null);
@@ -28,25 +31,25 @@ export default function App() {
   useEffect(() => {
     initBuffer().then(drain); // flush anything left from a previous trip
     loadSettings().then((s) => setWifi(s.wifiOnly));
-    isAutoCaptureEnabled().then(setAuto);
-    const offDrive = onDriveStateChange(setDriving);
+    isDriveDetectionEnabled().then(setDetect);
+    const offCapture = onCaptureStateChange(setAutoCapturing);
     // Returning to the app is a good moment to flush queued (Wi-Fi-deferred) batches.
     const sub = AppState.addEventListener("change", (st) => {
       if (st === "active") drain();
     });
     return () => {
-      offDrive();
+      offCapture();
       sub.remove();
     };
   }, []);
 
-  async function toggleAuto(on: boolean) {
+  async function toggleDetect(on: boolean) {
     if (on) {
-      setAuto(await enableAutoCapture());
+      setDetect(await enableDriveDetection());
     } else {
-      await disableAutoCapture();
-      setAuto(false);
-      setDriving(false);
+      await disableDriveDetection();
+      setDetect(false);
+      setAutoCapturing(false);
     }
   }
 
@@ -78,12 +81,12 @@ export default function App() {
     ticker.current = setInterval(() => setSamples(rec.sampleCount), 1000);
   }
 
-  const status = driving
-    ? "● Driving — capturing"
-    : auto
-    ? "Auto-capture on — watching for drives"
+  const status = autoCapturing
+    ? "● Capturing — phone mounted"
     : recording
     ? "● Recording trip"
+    : detect
+    ? "Watching for drives — I'll notify you"
     : "Idle";
 
   return (
@@ -92,13 +95,19 @@ export default function App() {
       <Text style={styles.status}>{status}</Text>
 
       <View style={styles.row}>
-        <Text style={styles.label}>Auto-capture while driving</Text>
-        <Switch value={auto} onValueChange={toggleAuto} />
+        <Text style={styles.label}>Notify me to capture when driving</Text>
+        <Switch value={detect} onValueChange={toggleDetect} />
       </View>
       <Text style={styles.muted}>
-        Detects driving and records in the background — minimal battery. High-rate
-        sensors run only while you're actually moving.
+        When you appear to be driving, you'll get a notification. Mount your phone
+        in its holder, then tap it to start mapping — it never auto-starts, so an
+        unmounted phone won't record bad data. Detection itself is battery-light.
       </Text>
+      {autoCapturing && (
+        <TouchableOpacity style={[styles.btn, styles.stop]} onPress={stopCapture}>
+          <Text style={styles.btnText}>Stop capturing</Text>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.row}>
         <Text style={styles.label}>Upload on Wi-Fi only</Text>
@@ -114,7 +123,7 @@ export default function App() {
       </TouchableOpacity>
       {recording && <Text style={styles.muted}>{samples} samples in current batch</Text>}
 
-      <Text style={styles.muted}>Logs IMU @50 Hz + GPS @1 Hz.</Text>
+      <Text style={styles.muted}>Logs IMU @50 Hz + GPS @1 Hz. Mount the phone for valid road data.</Text>
     </View>
   );
 }
@@ -124,7 +133,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: "700" },
   status: { fontSize: 16, marginBottom: 8 },
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
-  label: { fontSize: 15 },
+  label: { fontSize: 15, flexShrink: 1 },
   muted: { color: "#666", fontSize: 12, textAlign: "center", maxWidth: 320 },
   btn: { backgroundColor: "#2ecc71", paddingVertical: 14, paddingHorizontal: 40, borderRadius: 12, marginVertical: 12 },
   stop: { backgroundColor: "#e74c3c" },
