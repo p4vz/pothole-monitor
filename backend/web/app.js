@@ -78,8 +78,8 @@
   var drawReq = null;
   var magSensor = null; // Generic Sensor Magnetometer (compass), Chromium-only
   var lastMag = null;   // latest {x,y,z} microtesla reading, held between samples
-  var orientHandler = null, orientEv = null;
-  var lastOri = null;   // latest device orientation {a,b,g} degrees (iOS/fallback)
+  var oriAbsHandler = null, oriRelHandler = null, compassDiag = null;
+  var lastOri = null;   // latest device orientation {a,b,g,abs} degrees (fallback)
   var orientGranted = true;  // iOS DeviceOrientation permission
   var sawMag = false, sawOri = false;  // which compass source actually produced data
   var compassLabeled = false;
@@ -91,15 +91,26 @@
   }
 
   // ---- compass in 3D ----
-  // Primary: raw 3-axis Magnetometer (microtesla) via Generic Sensor API — only
-  // on Chromium + secure context. Fallback: DeviceOrientation (heading/pitch/roll
-  // in degrees) which works on iOS and older Android. We capture whichever is
-  // available (both, if possible) and plot the live source.
-  function startCompass() {
+  // Primary: raw 3-axis Magnetometer (microtesla) via Generic Sensor API. NOTE:
+  // `Magnetometer` is gated behind chrome://flags/#enable-generic-sensor-extra-
+  // classes, so on many phones the class is simply undefined even though the
+  // hardware exists. Fallback: DeviceOrientation (heading/pitch/roll degrees),
+  // which is fused from that same magnetometer and works without the flag and on
+  // iOS. We capture whichever sources fire and plot the live one.
+  async function startCompass() {
     lastMag = null; lastOri = null;
     if (typeof Magnetometer !== "undefined" && window.isSecureContext) {
       try {
-        magSensor = new Magnetometer({ frequency: 30 });
+        // Surface the permission state so we can tell "denied" from "no hardware".
+        if (navigator.permissions && navigator.permissions.query) {
+          try {
+            var perm = await navigator.permissions.query({ name: "magnetometer" });
+            log("compass: magnetometer permission = " + perm.state);
+            if (perm.state === "denied") throw new Error("permission denied");
+          } catch (qe) { /* some browsers reject this permission name — ignore */ }
+        }
+        magSensor = new Magnetometer({ frequency: 20 });
+        magSensor.addEventListener("activate", function () { log("compass: magnetometer active"); });
         magSensor.addEventListener("reading", function () {
           lastMag = { x: magSensor.x, y: magSensor.y, z: magSensor.z };
         });
@@ -108,27 +119,46 @@
           try { magSensor.stop(); } catch (_) {} magSensor = null;
         });
         magSensor.start();
-        log("compass: magnetometer started");
+        log("compass: magnetometer.start() called");
       } catch (e) { log("compass: magnetometer unavailable (" + e.message + ")"); magSensor = null; }
     } else {
-      log("compass: no raw magnetometer (using device orientation)");
+      log("compass: Magnetometer class absent — enable chrome://flags/#enable-generic-sensor-extra-classes, or using orientation");
     }
-    // Always also listen to orientation: free, broadly supported, useful for heading.
-    if (typeof DeviceOrientationEvent !== "undefined" && (orientGranted || typeof DeviceOrientationEvent.requestPermission !== "function")) {
-      orientHandler = function (e) {
-        if (e.alpha == null && e.beta == null && e.gamma == null) return;
-        lastOri = { a: e.alpha || 0, b: e.beta || 0, g: e.gamma || 0 };
-      };
-      orientEv = ("ondeviceorientationabsolute" in window) ? "deviceorientationabsolute" : "deviceorientation";
-      window.addEventListener(orientEv, orientHandler);
-    } else if (!magSensor) {
-      set("magNote", "— compass unavailable / permission denied");
+    startOrientation();
+    // Heartbeat: after a moment, say plainly whether anything is arriving.
+    if (compassDiag) clearTimeout(compassDiag);
+    compassDiag = setTimeout(function () {
+      if (sawMag) return;
+      if (sawOri) log("compass: using device orientation (no raw magnetometer readings)");
+      else log("compass: NO readings — sensor blocked/unsupported (magnetometer + orientation both silent)");
+    }, 2500);
+  }
+  // Listen to BOTH absolute and relative orientation: some devices expose the
+  // absolute event but never fire it, so relying on it alone shows nothing.
+  function startOrientation() {
+    if (typeof DeviceOrientationEvent === "undefined") { set("magNote", "— no orientation sensor"); return; }
+    if (typeof DeviceOrientationEvent.requestPermission === "function" && !orientGranted) {
+      set("magNote", "— compass permission denied"); return;
     }
+    oriAbsHandler = function (e) {
+      if (e.alpha == null && e.beta == null && e.gamma == null) return;
+      lastOri = { a: e.alpha || 0, b: e.beta || 0, g: e.gamma || 0, abs: true };
+    };
+    oriRelHandler = function (e) {
+      if (lastOri && lastOri.abs) return;  // prefer absolute when it's live
+      if (e.alpha == null && e.beta == null && e.gamma == null) return;
+      lastOri = { a: e.alpha || 0, b: e.beta || 0, g: e.gamma || 0, abs: false };
+    };
+    window.addEventListener("deviceorientationabsolute", oriAbsHandler);
+    window.addEventListener("deviceorientation", oriRelHandler);
   }
   function stopCompass() {
     try { if (magSensor) magSensor.stop(); } catch (e) { /* ignore */ }
     magSensor = null; lastMag = null;
-    if (orientHandler) { window.removeEventListener(orientEv, orientHandler); orientHandler = null; }
+    if (oriAbsHandler) window.removeEventListener("deviceorientationabsolute", oriAbsHandler);
+    if (oriRelHandler) window.removeEventListener("deviceorientation", oriRelHandler);
+    oriAbsHandler = oriRelHandler = null;
+    if (compassDiag) { clearTimeout(compassDiag); compassDiag = null; }
     lastOri = null;
   }
 
