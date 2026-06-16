@@ -241,7 +241,7 @@
     if (c.width !== want || c.height !== wantH) { c.width = want; c.height = wantH; }
     return dpr;
   }
-  function drawSeries(canvas, keys, now, floorSpan) {
+  function drawSeries(canvas, keys, now, floorSpan, vector) {
     if (!canvas) return;
     var ctx = canvas.getContext("2d"), dpr = sizeCanvas(canvas);
     var W = canvas.width, H = canvas.height, mid = H / 2, t0 = now - LIVE_SECONDS, t1 = now;
@@ -255,7 +255,7 @@
         if (vv == null) { ok0 = false; continue; }
         var av = Math.abs(vv); if (av > maxv) maxv = av; sq0 += vv * vv;
       }
-      if (ok0) { var mg0 = Math.sqrt(sq0); if (mg0 > maxv) maxv = mg0; }  // magnitude curve
+      if (vector && ok0) { var mg0 = Math.sqrt(sq0); if (mg0 > maxv) maxv = mg0; }  // magnitude curve
     }
     var span = Math.max(maxv * 1.1, floorSpan);
     function X(t) { return ((t - t0) / (t1 - t0)) * W; }
@@ -279,18 +279,21 @@
       }
       ctx.stroke();
     }
-    // 4th curve: vector magnitude sqrt(x²+y²+z²), in white.
-    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.2 * dpr; ctx.beginPath();
-    var startedM = false;
-    for (i = 0; i < live.length; i++) {
-      var s = live[i]; if (s.t < t0) continue;
-      var sq = 0, ok = true;
-      for (k = 0; k < keys.length; k++) { var v2 = s[keys[k]]; if (v2 == null) { ok = false; break; } sq += v2 * v2; }
-      if (!ok) { startedM = false; continue; }
-      var xm = X(s.t), ym = Y(Math.sqrt(sq));
-      if (!startedM) { ctx.moveTo(xm, ym); startedM = true; } else ctx.lineTo(xm, ym);
+    // 4th curve: vector magnitude sqrt(x²+y²+z²), in white. Only for true vectors
+    // (accel/gyro/magnetometer) — meaningless for Euler angles, which wrap.
+    if (vector) {
+      ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1.2 * dpr; ctx.beginPath();
+      var startedM = false;
+      for (i = 0; i < live.length; i++) {
+        var s = live[i]; if (s.t < t0) continue;
+        var sq = 0, ok = true;
+        for (k = 0; k < keys.length; k++) { var v2 = s[keys[k]]; if (v2 == null) { ok = false; break; } sq += v2 * v2; }
+        if (!ok) { startedM = false; continue; }
+        var xm = X(s.t), ym = Y(Math.sqrt(sq));
+        if (!startedM) { ctx.moveTo(xm, ym); startedM = true; } else ctx.lineTo(xm, ym);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
     ctx.fillStyle = "#7a8694"; ctx.font = (10 * dpr) + "px system-ui"; ctx.textAlign = "right";
     ctx.fillText("±" + span.toFixed(1), W - 4 * dpr, 12 * dpr);
   }
@@ -299,16 +302,17 @@
     var now = Date.now() / 1000, t0 = now - LIVE_SECONDS - 0.5;
     while (live.length && live[0].t < t0) live.shift();
     while (pings.length && pings[0].t < t0) pings.shift();
-    drawSeries($("plotAccel"), ["ax", "ay", "az"], now, 4);
-    drawSeries($("plotGyro"), ["gx", "gy", "gz"], now, 1);
-    // Compass: prefer raw magnetometer (µT); else device orientation (°).
-    if (sawMag) drawSeries($("plotMag"), ["mx", "my", "mz"], now, 20);
-    else drawSeries($("plotMag"), ["oa", "ob", "og"], now, 90);
+    drawSeries($("plotAccel"), ["ax", "ay", "az"], now, 4, true);
+    drawSeries($("plotGyro"), ["gx", "gy", "gz"], now, 1, true);
+    // Compass: prefer raw magnetometer (µT, a vector → show magnitude); else
+    // device orientation (degrees → no magnitude curve, angles aren't a vector).
+    if (sawMag) drawSeries($("plotMag"), ["mx", "my", "mz"], now, 20, true);
+    else drawSeries($("plotMag"), ["oa", "ob", "og"], now, 90, false);
     if (!compassLabeled && (sawMag || sawOri)) {
       compassLabeled = true;
       var W = '<b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b>';
       if (sawMag) { set("magAxis", "mag µT"); setHTML("magLegend", '<b class="dotx">●</b> mx &nbsp; <b class="doty">●</b> my &nbsp; <b class="dotz">●</b> mz &nbsp; ' + W + ' |m|'); }
-      else { set("magAxis", "orient °"); setHTML("magLegend", '<b class="dotx">●</b> α &nbsp; <b class="doty">●</b> β &nbsp; <b class="dotz">●</b> γ &nbsp; ' + W + ' |o|'); set("magNote", "— device orientation (no raw magnetometer)"); }
+      else { set("magAxis", "orient °"); setHTML("magLegend", '<b class="dotx">●</b> α &nbsp; <b class="doty">●</b> β &nbsp; <b class="dotz">●</b> γ'); set("magNote", "— device orientation (no raw magnetometer)"); }
     }
     set("potCount", potCount ? potCount + (potCount === 1 ? " pothole" : " potholes") : "");
     drawReq = requestAnimationFrame(drawLive);
