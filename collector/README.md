@@ -45,14 +45,26 @@ plus background location keeps capture alive with the screen off;
 low-power GPS detection (and re-notifies on the next drive); the 50 Hz IMU
 resumes once the user taps to confirm again.
 
+## Build the Android app (one command)
+
+```bash
+cd collector
+npm install
+npx eas-cli login          # first time only (free Expo account)
+npx eas-cli build:configure # first time only — creates the EAS project id
+npm run build:android      # => installable APK (preview profile); EAS prints a download URL
+```
+
+`npm run build:android` runs `eas build -p android --profile preview` and
+produces a sideloadable **APK** with a shareable link. For the Play Store use
+`npm run build:android:prod` (AAB) then `npm run submit:android`. Profiles live
+in `eas.json`.
+
 ## Publish + link from the website
 
-1. `npm i -g eas-cli && eas login && eas build:configure`
-2. `eas build -p android` → an installable APK / AAB
-   (or `eas submit -p android` for Play internal testing).
-3. Put the resulting URL in the website's `backend/web/config.js`
-   (`APP_ANDROID_URL`) — the "Get the Android app" button on the collector page
-   lights up automatically.
+Put the APK / Play Store URL from the build into the website's
+`backend/web/config.js` (`APP_ANDROID_URL`) — the "Get the Android app" button
+on the collector page lights up automatically.
 
 ## Privacy
 
