@@ -196,6 +196,36 @@ function drawMarkers(geojson) {
   markerLayer.addTo(map);
 }
 
+let defectLayer = null;
+let showDefects = true;
+
+// Phase 3: physical defects clustered from jolt points across passes/devices —
+// authoritative pothole markers, independent of the H3 grid. Severity 0..3.
+const DEFECT_COLOR = ["#2ecc71", "#f1c40f", "#e67e22", "#e74c3c"];
+
+async function drawDefects(bbox) {
+  if (defectLayer) { defectLayer.remove(); defectLayer = null; }
+  if (!showDefects) return 0;
+  const fc = await (await fetch(`${API}/v1/defects?bbox=${bbox}`)).json();
+  defectLayer = L.layerGroup();
+  for (const f of fc.features) {
+    const p = f.properties;
+    const [lng, lat] = f.geometry.coordinates;
+    const color = DEFECT_COLOR[p.severity] || "#e74c3c";
+    L.circleMarker([lat, lng], {
+      radius: 7, color: "#111", weight: 2, fillColor: color,
+      fillOpacity: 0.5 + 0.5 * p.confidence,
+    })
+      .bindTooltip(
+        `defect · ${p.n_devices} device(s), ${p.n_points} hit(s)` +
+          ` · ±${p.radius_m} m · ${(p.confidence * 100).toFixed(0)}% conf`
+      )
+      .addTo(defectLayer);
+  }
+  defectLayer.addTo(map);
+  return fc.features.length;
+}
+
 async function refresh() {
   const b = map.getBounds();
   const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()].join(",");
@@ -212,7 +242,8 @@ async function refresh() {
         l.on("click", () => showDetail(f.properties.segment_key)),
     }).addTo(map);
     drawMarkers(geojson);
-    status.textContent = `${geojson.features.length} segments`;
+    const nDefects = await drawDefects(bbox);
+    status.textContent = `${geojson.features.length} segments · ${nDefects} defects`;
   } catch (err) {
     status.textContent = `error: ${err.message} (API: ${API})`;
   }
@@ -221,6 +252,10 @@ async function refresh() {
 document.getElementById("conf").addEventListener("input", (e) => {
   minConfidence = parseFloat(e.target.value);
   document.getElementById("confVal").textContent = minConfidence.toFixed(2);
+  refresh();
+});
+document.getElementById("defects").addEventListener("change", (e) => {
+  showDefects = e.target.checked;
   refresh();
 });
 map.on("moveend", refresh);

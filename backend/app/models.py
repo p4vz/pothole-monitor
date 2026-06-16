@@ -80,6 +80,24 @@ class SegmentObservation(Base):
     sample_end: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class EventPoint(Base):
+    """One localized road-event jolt (a candidate pothole hit) with its
+    lag-corrected GPS position. These points are clustered across passes/devices
+    into physical defects (independent of the H3 grid and heading buckets).
+    Re-derived from raw on every reprocess."""
+
+    __tablename__ = "event_points"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    batch_id: Mapped[str] = mapped_column(String, index=True)
+    device_id: Mapped[str] = mapped_column(String, index=True)
+    ts: Mapped[float] = mapped_column(Float)
+    lat: Mapped[float] = mapped_column(Float, index=True)
+    lng: Mapped[float] = mapped_column(Float, index=True)
+    value: Mapped[float] = mapped_column(Float)        # signed vertical accel at peak
+    severity: Mapped[int] = mapped_column(Integer)
+    heading_bucket: Mapped[int] = mapped_column(Integer)
+
+
 class SegmentState(Base):
     """Aggregated, continuously-updated condition for one road segment.
 

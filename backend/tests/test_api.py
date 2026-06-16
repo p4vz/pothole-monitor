@@ -55,6 +55,22 @@ def test_full_roundtrip_gzip_upload_to_geojson(client):
     assert far["features"] == []
 
 
+def test_defects_cluster_across_devices(client):
+    """Two distinct devices driving the same pothole produce one clustered
+    defect with n_devices == 2 (independent of the H3 grid)."""
+    for dev, seed in [("devA", 11), ("devB", 12)]:
+        token = _register(client)  # each device gets its own identity
+        batch = make_batch(f"def-{dev}", dev, potholes=[(5.0, 9.0), (5.1, 9.0)], seed=seed)
+        client.post("/v1/batches", content=json.dumps(batch).encode(),
+                    headers={"X-Device-Token": token})
+    fc = client.get("/v1/defects").json()
+    assert fc["type"] == "FeatureCollection"
+    assert fc["features"], "expected at least one clustered defect"
+    f = fc["features"][0]
+    assert f["geometry"]["type"] == "Point"
+    assert max(d["properties"]["n_devices"] for d in fc["features"]) == 2
+
+
 def test_idempotent_reupload(client):
     token = _register(client)
     batch = make_batch("api-dup", "devX", seed=8)

@@ -170,17 +170,30 @@ def vertical_jerk_events(imu: dict, cfg=settings) -> list[dict]:
     return events
 
 
-def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
-    """Align, reorient, gate, and window a raw batch into per-window features.
+@dataclass
+class _Prepared:
+    """Per-sample road-frame signals after align/lag-correct/reorient/gate."""
+    t: np.ndarray
+    vert: np.ndarray       # road-normal linear acceleration
+    lateral: np.ndarray    # cross-track acceleration magnitude
+    yaw_rate: np.ndarray
+    lat: np.ndarray        # lag-corrected position
+    lng: np.ndarray
+    heading: np.ndarray
+    speed: np.ndarray
+    good: np.ndarray       # quality-gate mask
+    fs: float
 
-    Shared by the heuristic aggregation path and the ML training/inference path.
-    Includes low-quality windows (with their `quality`) so callers can filter.
-    """
+
+def _prepare(payload: dict, cfg=settings) -> _Prepared | None:
+    """Align GPS to the IMU clock, compensate GPS lag, reorient to the road
+    frame, and quality-gate. Shared by compute_windows (features) and
+    event_points (defect localization) so both see identical positions/signals."""
     imu = payload.get("imu", {})
     gps = payload.get("gps", [])
     t = np.asarray(imu.get("t", []), dtype=float)
     if t.size < 4:
-        return []
+        return None
 
     a = np.stack(
         [
@@ -246,6 +259,56 @@ def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
         cum = _cumulative_meters(np.nan_to_num(lat), np.nan_to_num(lng))
         total = cum[-1]
         good &= (cum >= cfg.trip_trim_meters) & (cum <= total - cfg.trip_trim_meters)
+
+    return _Prepared(t, vert, lateral, yaw_rate, lat, lng, heading, speed, good, fs)
+
+
+def event_points(payload: dict, cfg=settings) -> list[dict]:
+    """Localized road-event jolts for defect clustering: each vertical-jerk peak
+    above threshold, tagged with its lag-corrected GPS position and heading
+    bucket. Returns [{t, lat, lng, value, severity, heading_bucket}]."""
+    prep = _prepare(payload, cfg)
+    if prep is None:
+        return []
+    av = np.abs(prep.vert)
+    refractory = max(1, int(0.25 * prep.fs))  # one jolt -> one point
+    out: list[dict] = []
+    last = -(10**9)
+    for i in range(1, len(av) - 1):
+        if (
+            av[i] >= cfg.event_peak_thresh
+            and av[i] >= av[i - 1]
+            and av[i] > av[i + 1]
+            and i - last >= refractory
+            and bool(prep.good[i])
+        ):
+            out.append(
+                {
+                    "t": float(prep.t[i]),
+                    "lat": float(prep.lat[i]),
+                    "lng": float(prep.lng[i]),
+                    "value": float(prep.vert[i]),
+                    "severity": severity_from_peak(av[i]),
+                    "heading_bucket": seg.heading_bucket(float(prep.heading[i])),
+                }
+            )
+            last = i
+    return out
+
+
+def compute_windows(payload: dict, cfg=settings) -> list[WindowFeat]:
+    """Align, reorient, gate, and window a raw batch into per-window features.
+
+    Shared by the heuristic aggregation path and the ML training/inference path.
+    Includes low-quality windows (with their `quality`) so callers can filter.
+    """
+    prep = _prepare(payload, cfg)
+    if prep is None:
+        return []
+    t, vert, lateral, yaw_rate = prep.t, prep.vert, prep.lateral, prep.yaw_rate
+    lat, lng, heading, speed, good, fs = (
+        prep.lat, prep.lng, prep.heading, prep.speed, prep.good, prep.fs,
+    )
 
     # --- window the vertical signal into per-window features ---
     win = max(4, int(cfg.window_seconds * fs))

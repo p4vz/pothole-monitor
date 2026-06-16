@@ -21,8 +21,9 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import SessionLocal, init_db
-from .models import Device, RawBatch, SegmentObservation, SegmentState
+from .models import Device, EventPoint, RawBatch, SegmentObservation, SegmentState
 from .analysis import vertical_jerk_events
+from .defects import cluster_defects
 from .pipeline import _load_payload, process_batch
 from .schemas import BatchAck, BatchUpload, DeviceCreate, DeviceOut
 from . import segmentation as seg
@@ -189,6 +190,32 @@ def get_segments(
                 },
             }
         )
+    return {"type": "FeatureCollection", "features": features}
+
+
+@app.get("/v1/defects")
+def get_defects(bbox: str | None = None, db: Session = Depends(get_db)) -> dict:
+    """Physical defects clustered from jolt points across passes/devices —
+    independent of the H3 grid and heading. GeoJSON points for the viewer."""
+    stmt = select(EventPoint)
+    box = _parse_bbox(bbox)
+    if box:
+        min_lng, min_lat, max_lng, max_lat = box
+        stmt = stmt.where(
+            EventPoint.lat >= min_lat,
+            EventPoint.lat <= max_lat,
+            EventPoint.lng >= min_lng,
+            EventPoint.lng <= max_lng,
+        )
+    points = list(db.execute(stmt).scalars())
+    features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [d["lng"], d["lat"]]},
+            "properties": d,
+        }
+        for d in cluster_defects(points)
+    ]
     return {"type": "FeatureCollection", "features": features}
 
 

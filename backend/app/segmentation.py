@@ -1,9 +1,20 @@
 """H3 hex-grid segmentation.
 
 A segment is an H3 cell plus a heading bucket, so opposite directions of travel
-(and roughly opposite lanes) map to distinct segments. Map-matching to OSM road
-geometry is a planned Phase-3 upgrade that can replace the H3 key without
-touching the rest of the pipeline.
+(and roughly opposite lanes) map to distinct segments. The cell resolution
+(settings.h3_resolution, ~25 m at res 11) is deliberately coarser than GPS noise
+so repeat passes reinforce one segment; the precise pothole comes from the
+Bayesian sub-cell location and event clustering, not the cell.
+
+Deferred upgrade — OSM map-matching (planned, not built):
+    This module is the single seam for "what counts as the same place". A
+    map-matched variant would snap the whole GPS trace to road centerlines and
+    key segments by (edge_id, distance_along_bucket, direction) instead of an H3
+    cell — making registration lane- and lag-invariant. It operates on the trace
+    (a sequence), so analyze() would match once per batch and assign each window
+    to its matched edge+offset; aggregation/Bayesian/clustering stay unchanged.
+    Backend options: hosted OSRM `/match` or Valhalla `/trace_attributes` (needs
+    an outbound egress allowlist) vs a self-hosted/offline OSM extract.
 """
 from __future__ import annotations
 

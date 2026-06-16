@@ -4,8 +4,9 @@ import math
 import numpy as np
 
 import app.segmentation as seg
-from app.analysis import compute_windows
+from app.analysis import compute_windows, event_points
 from app.config import settings
+from app.defects import cluster_defects
 from tests.synth import make_batch
 
 
@@ -43,3 +44,39 @@ def test_gps_latency_shifts_position_backward():
     assert lng_on < lng_off  # east heading => backward shift is westward
     shift_m = (lng_off - lng_on) * 111_111.0 * math.cos(math.radians(52.370))
     assert 3.0 < shift_m < 9.0  # ~ speed*latency = 20 * 0.3 = 6 m
+
+
+def test_event_points_are_localized():
+    """Phase 3: a pothole impulse yields an event point near where it was hit."""
+    batch = make_batch("ev", "d", heading_deg=90.0, speed_mps=13.0,
+                       potholes=[(5.0, 9.0)], seed=4)
+    pts = event_points(batch)
+    assert pts, "expected at least one localized jolt"
+    # All points carry a position and a heading bucket.
+    assert all("lat" in p and "lng" in p and "heading_bucket" in p for p in pts)
+
+
+def test_cluster_separates_distinct_potholes():
+    """Phase 3: GPS-noisy passes over two potholes ~40 m apart cluster into two
+    defects (not the grid), each tagged with its distinct-device count."""
+    base = (52.370, 4.900)
+    A = base
+    B = _offset(*base, 40.0, 0.0)  # 40 m east
+    rng = np.random.default_rng(2)
+    pts = []
+    for truth, devices in [(A, ["d1", "d2", "d3"]), (B, ["d1", "d2"])]:
+        for dev in devices:
+            for _ in range(3):  # several noisy passes per device
+                de, dn = rng.normal(0.0, 3.0, 2)
+                la, ln = _offset(*truth, de, dn)
+                pts.append({"lat": la, "lng": ln, "device_id": dev,
+                            "severity": 2, "value": 6.0, "heading_bucket": 2})
+    defects = cluster_defects(pts)
+    assert len(defects) == 2
+    # Assign each defect to its nearest ground-truth pothole.
+    def to(truth):
+        return min(defects, key=lambda d: math.hypot(d["lat"] - truth[0], d["lng"] - truth[1]))
+    da, db = to(A), to(B)
+    assert da is not db
+    assert da["n_devices"] == 3
+    assert db["n_devices"] == 2

@@ -10,9 +10,9 @@ import json
 from datetime import datetime, timezone
 
 from .aggregation import fold
-from .analysis import analyze
+from .analysis import analyze, event_points
 from .db import SessionLocal
-from .models import RawBatch, SegmentObservation
+from .models import EventPoint, RawBatch, SegmentObservation
 from .storage import get_store
 
 
@@ -29,12 +29,13 @@ def reprocess_all() -> dict:
     raw blobs to still exist in storage."""
     from sqlalchemy import delete, select, update
 
-    from .models import SegmentObservation, SegmentState
+    from .models import EventPoint, SegmentObservation, SegmentState
 
     session = SessionLocal()
     try:
         session.execute(delete(SegmentObservation))
         session.execute(delete(SegmentState))
+        session.execute(delete(EventPoint))
         session.execute(update(RawBatch).values(status="pending", processed_at=None, error=None))
         session.commit()
         # Process chronologically so recency-decay/trend reproduce live state
@@ -71,6 +72,27 @@ def process_batch(batch_id: str) -> int:
 
             payload = _load_payload(get_store().get(batch.storage_key))
             observations = analyze(payload, scorer=get_model())
+
+            # Localized jolt points for cross-pass defect clustering. Replace any
+            # prior points for this batch so re-processing a single batch is
+            # idempotent (reprocess_all clears the whole table up front).
+            from sqlalchemy import delete
+
+            session.execute(delete(EventPoint).where(EventPoint.batch_id == batch.id))
+            for ev in event_points(payload):
+                session.add(
+                    EventPoint(
+                        batch_id=batch.id,
+                        device_id=batch.device_id,
+                        ts=ev["t"],
+                        lat=ev["lat"],
+                        lng=ev["lng"],
+                        value=ev["value"],
+                        severity=ev["severity"],
+                        heading_bucket=ev["heading_bucket"],
+                    )
+                )
+
             for obs in observations:
                 # Insert the observation first so the distinct-device count in
                 # fold() includes this pass.
