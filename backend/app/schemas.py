@@ -30,6 +30,11 @@ class ImuBlock(BaseModel):
     gx: list[float] | None = None
     gy: list[float] | None = None
     gz: list[float] | None = None
+    # Magnetometer (compass) vector, microtesla. Aligned to `t`; entries may be
+    # null before the first reading. Archived for future displacement/heading work.
+    mx: list[float | None] | None = None
+    my: list[float | None] | None = None
+    mz: list[float | None] | None = None
 
 
 class BatchMeta(BaseModel):

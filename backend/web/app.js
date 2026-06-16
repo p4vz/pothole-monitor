@@ -61,18 +61,49 @@
 
   // ---- live readout + on-device pothole ping ----
   var LIVE_SECONDS = 10;                       // rolling window shown on the plots
-  var POTHOLE_THRESH = CFG.POTHOLE_THRESH || 2.5;  // m/s^2 vertical jolt (matches server)
-  var live = [];        // recent samples {t, ax..gz} for plotting
+  // Pothole jolt scales with speed, so a fixed accel threshold over-fires at
+  // speed and misses potholes when slow. Detect on a SPEED-NORMALIZED index
+  // (|vert| / speed) instead, which is roughly speed-invariant.
+  var V_FLOOR = CFG.POTHOLE_V_FLOOR || 2.0;    // m/s; treat slower than this as this
+  var IDX_THRESH = CFG.POTHOLE_INDEX || 0.30;  // |vert|/speed threshold (s)
+  var MIN_ABS = CFG.POTHOLE_MIN_ABS || 0.4;    // absolute vert floor, rejects noise
+  var ABS_FALLBACK = CFG.POTHOLE_THRESH || 3.0;  // used only when GPS speed is unknown
+  var live = [];        // recent samples {t, ax..mz} for plotting
   var pings = [];       // recent detections {t, mag}
   var gEma = null;      // EMA gravity estimate, for orientation-free vertical accel
   var potCount = 0;     // detections this trip
   var soundEnabled = false;  // audible ding is opt-in (off by default, stays silent)
   var audioCtx = null;  // created only when the user ticks the sound checkbox
   var drawReq = null;
+  var magSensor = null; // Generic Sensor Magnetometer (compass), if supported
+  var lastMag = null;   // latest {x,y,z} microtesla reading, held between samples
 
   function freshBatch() {
-    imu = { t: [], ax: [], ay: [], az: [], gx: [], gy: [], gz: [] };
+    imu = { t: [], ax: [], ay: [], az: [], gx: [], gy: [], gz: [], mx: [], my: [], mz: [] };
     gps = [];
+  }
+
+  // ---- magnetometer (compass) in 3D: separate sensor stream; hold latest reading
+  // and sample-align it to the motion samples. Graceful no-op where unsupported. ----
+  function startMagnetometer() {
+    lastMag = null;
+    try {
+      if (typeof Magnetometer === "undefined") { log("compass: no magnetometer sensor"); return; }
+      magSensor = new Magnetometer({ frequency: 50, referenceFrame: "device" });
+      magSensor.addEventListener("reading", function () {
+        lastMag = { x: magSensor.x, y: magSensor.y, z: magSensor.z };
+      });
+      magSensor.addEventListener("error", function (e) {
+        log("compass error: " + ((e.error && e.error.name) || "unavailable"));
+        try { magSensor.stop(); } catch (_) {} magSensor = null;
+      });
+      magSensor.start();
+      log("compass: magnetometer started");
+    } catch (e) { log("compass unavailable: " + e.message); magSensor = null; }
+  }
+  function stopMagnetometer() {
+    try { if (magSensor) magSensor.stop(); } catch (e) { /* ignore */ }
+    magSensor = null; lastMag = null;
   }
 
   function onMotion(e) {
@@ -84,11 +115,14 @@
     // rotationRate: beta=around x, gamma=around y, alpha=around z (deg/s).
     var gx = (r.beta || 0) * d2r, gy = (r.gamma || 0) * d2r, gz = (r.alpha || 0) * d2r;
 
+    var mx = lastMag ? lastMag.x : null, my = lastMag ? lastMag.y : null, mz = lastMag ? lastMag.z : null;
+
     imu.t.push(t);
     imu.ax.push(a.x); imu.ay.push(a.y); imu.az.push(a.z);
     imu.gx.push(gx); imu.gy.push(gy); imu.gz.push(gz);
+    imu.mx.push(mx); imu.my.push(my); imu.mz.push(mz);
 
-    live.push({ t: t, ax: a.x, ay: a.y, az: a.z, gx: gx, gy: gy, gz: gz });
+    live.push({ t: t, ax: a.x, ay: a.y, az: a.z, gx: gx, gy: gy, gz: gz, mx: mx, my: my, mz: mz });
 
     // Orientation-free vertical jolt: EMA gravity -> linear accel projected on
     // gravity. A peak above threshold is a candidate pothole (debounced 0.6 s).
@@ -97,20 +131,31 @@
     gEma[0] += k * (a.x - gEma[0]); gEma[1] += k * (a.y - gEma[1]); gEma[2] += k * (a.z - gEma[2]);
     var gm = Math.hypot(gEma[0], gEma[1], gEma[2]) || 1;
     var vert = ((a.x - gEma[0]) * gEma[0] + (a.y - gEma[1]) * gEma[1] + (a.z - gEma[2]) * gEma[2]) / gm;
+    var av = Math.abs(vert);
+
+    // Speed-normalized detection so the same pothole registers across speeds.
+    var spd = (lastFix && lastFix.speed != null && lastFix.speed >= 0) ? lastFix.speed : null;
+    var detected;
+    if (spd != null) {
+      detected = (av / Math.max(spd, V_FLOOR)) > IDX_THRESH && av > MIN_ABS;
+    } else {
+      detected = av > ABS_FALLBACK;  // no GPS speed: best-effort fixed threshold
+    }
     var lastT = pings.length ? pings[pings.length - 1].t : 0;
-    if (Math.abs(vert) > POTHOLE_THRESH && t - lastT > 0.6) {
-      pings.push({ t: t, mag: Math.abs(vert) });
+    if (detected && t - lastT > 0.6) {
+      pings.push({ t: t, mag: av });
       potCount++;
-      firePing(Math.abs(vert));
+      firePing(av, spd);
     }
   }
 
   // ---- pothole feedback: flash a badge over the plots + short beep ----
-  function firePing(mag) {
+  function firePing(mag, spd) {
     var b = $("potholeBadge");
     if (b) { b.classList.add("show"); clearTimeout(b._t); b._t = setTimeout(function () { b.classList.remove("show"); }, 1000); }
     beep();
-    log("pothole detected (vert " + mag.toFixed(1) + " m/s²)");
+    var at = spd != null ? " @ " + (spd * 3.6).toFixed(0) + " km/h" : "";
+    log("pothole detected (vert " + mag.toFixed(1) + " m/s²" + at + ")");
   }
   function beep() {
     try {
@@ -160,7 +205,9 @@
       var started = false;
       for (i = 0; i < live.length; i++) {
         var s = live[i]; if (s.t < t0) continue;
-        var x = X(s.t), y = Y(s[keys[k]]);
+        var v = s[keys[k]];
+        if (v == null) { started = false; continue; }  // gap (e.g. no compass yet)
+        var x = X(s.t), y = Y(v);
         if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
       }
       ctx.stroke();
@@ -175,6 +222,7 @@
     while (pings.length && pings[0].t < t0) pings.shift();
     drawSeries($("plotAccel"), ["ax", "ay", "az"], now, 4);
     drawSeries($("plotGyro"), ["gx", "gy", "gz"], now, 1);
+    drawSeries($("plotMag"), ["mx", "my", "mz"], now, 20);
     set("potCount", potCount ? potCount + (potCount === 1 ? " pothole" : " potholes") : "");
     drawReq = requestAnimationFrame(drawLive);
   }
@@ -193,6 +241,9 @@
 
   async function closeBatch() {
     if (imu.t.length < 10) return; // not enough to be useful
+    // Drop compass arrays entirely if no real readings (unsupported device),
+    // rather than uploading aligned null-filled columns.
+    if (!imu.mx.some(function (v) { return v != null; })) { delete imu.mx; delete imu.my; delete imu.mz; }
     var token = localStorage.getItem("rs_token") || "anon";
     var batch = {
       batch_id: token.slice(0, 8) + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
@@ -265,6 +316,7 @@
 
       motionHandler = onMotion;
       window.addEventListener("devicemotion", motionHandler);
+      startMagnetometer();
       geoWatch = navigator.geolocation.watchPosition(onPosition, function (e) { log("gps error: " + e.message); },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
 
@@ -289,6 +341,7 @@
     recording = false;
     if (motionHandler) window.removeEventListener("devicemotion", motionHandler);
     if (geoWatch != null) navigator.geolocation.clearWatch(geoWatch);
+    stopMagnetometer();
     clearInterval(batchTimer); clearInterval(uiTimer);
     if (drawReq) cancelAnimationFrame(drawReq); drawReq = null;
     if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
@@ -305,6 +358,7 @@
   window.addEventListener("online", flush);
   document.addEventListener("DOMContentLoaded", function () {
     set("api", API);
+    if (typeof Magnetometer === "undefined") set("magNote", "— no compass sensor on this device");
     $("toggle").addEventListener("click", function () { recording ? stop() : start(); });
     // Audible ding is opt-in. Ticking the box is the user gesture that lets the
     // browser create/resume audio (it may prompt); unticking goes silent again.
