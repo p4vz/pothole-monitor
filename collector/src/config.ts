@@ -14,6 +14,11 @@ export const CONFIG = {
   DETECT_DISTANCE_M: 60,    // idle detection: wake ~every 60 m of movement (low power)
   DETECT_DEFER_MS: 30000,   // batch idle location wakeups to save battery
 
+  // Upload on Wi-Fi only (default). When on, batches queue during the drive and
+  // sync once at the end — saving cellular data and radio battery. User-toggled
+  // in the app; this is just the initial value.
+  WIFI_ONLY_DEFAULT: false,
+
   // Batching: close + upload every BATCH_SECONDS (1–5 min per the design).
   BATCH_SECONDS: 300,
 

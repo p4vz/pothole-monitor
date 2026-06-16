@@ -2,12 +2,13 @@
 //  • Auto-capture — detects driving and records in the background (battery-light).
 //  • Manual trip — start/stop an explicit recording.
 import React, { useEffect, useRef, useState } from "react";
-import { Text, TouchableOpacity, View, StyleSheet, Switch } from "react-native";
+import { Text, TouchableOpacity, View, StyleSheet, Switch, AppState } from "react-native";
 import * as Location from "expo-location";
 
 import { initBuffer } from "./src/buffer";
 import { Recorder } from "./src/sensors";
 import { drain } from "./src/uploader";
+import { loadSettings, wifiOnly, setWifiOnly } from "./src/settings";
 import {
   enableAutoCapture,
   disableAutoCapture,
@@ -17,6 +18,7 @@ import {
 
 export default function App() {
   const [auto, setAuto] = useState(false);
+  const [wifi, setWifi] = useState(false);
   const [driving, setDriving] = useState(false);
   const [recording, setRecording] = useState(false);
   const [samples, setSamples] = useState(0);
@@ -25,8 +27,17 @@ export default function App() {
 
   useEffect(() => {
     initBuffer().then(drain); // flush anything left from a previous trip
+    loadSettings().then((s) => setWifi(s.wifiOnly));
     isAutoCaptureEnabled().then(setAuto);
-    return onDriveStateChange(setDriving);
+    const offDrive = onDriveStateChange(setDriving);
+    // Returning to the app is a good moment to flush queued (Wi-Fi-deferred) batches.
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active") drain();
+    });
+    return () => {
+      offDrive();
+      sub.remove();
+    };
   }, []);
 
   async function toggleAuto(on: boolean) {
@@ -37,6 +48,12 @@ export default function App() {
       setAuto(false);
       setDriving(false);
     }
+  }
+
+  async function toggleWifi(on: boolean) {
+    await setWifiOnly(on);
+    setWifi(on);
+    if (!on) drain(); // turning it off can release anything held back
   }
 
   async function toggleManual() {
@@ -52,7 +69,9 @@ export default function App() {
     if (fg.status !== "granted") return;
     await Location.requestBackgroundPermissionsAsync();
     const rec = new Recorder();
-    rec.onFlush = () => drain();
+    rec.onFlush = () => {
+      if (!wifiOnly()) drain(); // Wi-Fi-only: hold until trip end
+    };
     await rec.start();
     recorder.current = rec;
     setRecording(true);
@@ -81,12 +100,21 @@ export default function App() {
         sensors run only while you're actually moving.
       </Text>
 
+      <View style={styles.row}>
+        <Text style={styles.label}>Upload on Wi-Fi only</Text>
+        <Switch value={wifi} onValueChange={toggleWifi} />
+      </View>
+      <Text style={styles.muted}>
+        Holds data during the drive and syncs once at the end, only on Wi-Fi —
+        saves cellular data and battery. Otherwise uploads each batch as it fills.
+      </Text>
+
       <TouchableOpacity style={[styles.btn, recording && styles.stop]} onPress={toggleManual}>
         <Text style={styles.btnText}>{recording ? "Stop trip" : "Start trip manually"}</Text>
       </TouchableOpacity>
       {recording && <Text style={styles.muted}>{samples} samples in current batch</Text>}
 
-      <Text style={styles.muted}>Logs IMU @50 Hz + GPS @1 Hz, uploads each batch.</Text>
+      <Text style={styles.muted}>Logs IMU @50 Hz + GPS @1 Hz.</Text>
     </View>
   );
 }

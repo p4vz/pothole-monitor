@@ -19,6 +19,7 @@ import * as Notifications from "expo-notifications";
 import { CONFIG } from "./config";
 import { Recorder } from "./sensors";
 import { drain } from "./uploader";
+import { wifiOnly } from "./settings";
 
 export const DRIVE_TASK = "roadsense-drive-detect";
 
@@ -88,7 +89,10 @@ async function startDriving() {
   await notify("Drive detected", "Capturing road condition in the background.");
   await setLocationMode("drive"); // upgrade GPS accuracy while moving
   recorder = new Recorder();
-  recorder.onFlush = () => drain();
+  // Wi-Fi-only: hold batches and sync once at trip end; otherwise upload as they close.
+  recorder.onFlush = () => {
+    if (!wifiOnly()) drain();
+  };
   await recorder.start({ withGps: false }); // GPS arrives via the background task
 }
 

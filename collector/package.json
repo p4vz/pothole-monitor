@@ -12,6 +12,7 @@
     "expo": "~51.0.0",
     "expo-sensors": "~13.0.0",
     "expo-location": "~17.0.0",
+    "expo-network": "~6.0.0",
     "expo-notifications": "~0.28.0",
     "expo-sqlite": "~14.0.0",
     "expo-task-manager": "~11.8.0",

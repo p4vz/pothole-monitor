@@ -1,12 +1,26 @@
 // Drains the SQLite buffer: gzip each pending batch and POST it. The server is
 // idempotent on batch_id, so retries are safe. Deletes locally only on ack.
 import pako from "pako";
+import * as Network from "expo-network";
 
 import { CONFIG } from "./config";
 import { getDeviceToken } from "./api";
 import { markAcked, pendingBatches } from "./buffer";
+import { wifiOnly } from "./settings";
 
 let draining = false;
+
+// Respect the "upload on Wi-Fi only" setting: when on, hold batches until the
+// device is on Wi-Fi (they stay queued in SQLite and drain later).
+async function uploadAllowed(): Promise<boolean> {
+  if (!wifiOnly()) return true;
+  try {
+    const s = await Network.getNetworkStateAsync();
+    return s.type === Network.NetworkStateType.WIFI && !!s.isConnected;
+  } catch {
+    return false; // unknown network => don't risk cellular
+  }
+}
 
 async function uploadOne(payload: object, token: string): Promise<boolean> {
   const body = pako.gzip(JSON.stringify(payload));
@@ -25,6 +39,7 @@ async function uploadOne(payload: object, token: string): Promise<boolean> {
 // Upload all pending batches; offline-safe — failures stay queued for next call.
 export async function drain(): Promise<void> {
   if (draining) return;
+  if (!(await uploadAllowed())) return; // Wi-Fi-only and not on Wi-Fi -> stay queued
   draining = true;
   try {
     const token = await getDeviceToken();

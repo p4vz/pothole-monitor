@@ -68,6 +68,16 @@ npx expo run:android   # or run:ios — a dev build, not Expo Go
 | `src/driveDetect.ts` | background location task: detect driving, notify, start/stop capture |
 | `src/sensors.ts` | `Recorder` — IMU capture (+ optional GPS) + batch flush |
 | `src/buffer.ts` | SQLite batch queue (survives app kill) |
-| `src/uploader.ts` | gzip + upload + backoff retry, ack-then-delete |
+| `src/uploader.ts` | gzip + upload + backoff retry; gated by the Wi-Fi-only setting |
+| `src/settings.ts` | persisted user settings (Wi-Fi-only) |
 | `src/api.ts` | anonymous device registration + token cache |
-| `App.tsx` | auto-capture toggle + manual trip + live status |
+| `App.tsx` | auto-capture + Wi-Fi-only toggles, manual trip, live status |
+
+## Upload on Wi-Fi only
+
+Toggle **"Upload on Wi-Fi only"** to hold batches during the drive (queued in
+SQLite) and sync once at the **end of the trip**, and only when on Wi-Fi —
+saving cellular data and radio battery. The uploader checks `expo-network`
+before draining; anything held back flushes the next time the app is foregrounded
+on Wi-Fi (or the next drive that ends on Wi-Fi). With the toggle off (default),
+each batch uploads as it closes.
