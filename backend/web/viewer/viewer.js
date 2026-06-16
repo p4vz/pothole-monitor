@@ -100,4 +100,21 @@ document.getElementById("conf").addEventListener("input", (e) => {
   refresh();
 });
 map.on("moveend", refresh);
-refresh();
+
+// On load, fit the map to wherever the data actually is, so you see your drive
+// regardless of the default centre. Falls back to a normal draw if there's none.
+async function fitToData() {
+  const status = document.getElementById("status");
+  try {
+    const geojson = await (await fetch(`${API}/v1/segments?min_confidence=0`)).json();
+    if (geojson.features && geojson.features.length) {
+      map.fitBounds(L.geoJSON(geojson).getBounds(), { maxZoom: 17, padding: [24, 24] });
+      return; // fitBounds fires moveend -> refresh() draws
+    }
+    status.textContent = "no data yet — record a trip in the collector";
+  } catch (err) {
+    status.textContent = `error: ${err.message} (API: ${API})`;
+  }
+  refresh();
+}
+fitToData();

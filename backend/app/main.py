@@ -13,10 +13,10 @@ from pathlib import Path
 
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -234,6 +234,84 @@ def get_segment(segment_key: str, db: Session = Depends(get_db)) -> dict:
             for o in history
         ],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Data inspection: overview + raw archive access
+# --------------------------------------------------------------------------- #
+@app.get("/v1/stats")
+def stats(db: Session = Depends(get_db)) -> dict:
+    """One-call overview: did raw data land, did it compile, and where is it?"""
+    status_rows = db.execute(
+        select(RawBatch.status, func.count()).group_by(RawBatch.status)
+    ).all()
+    bb = db.execute(
+        select(
+            func.min(SegmentState.center_lat), func.min(SegmentState.center_lng),
+            func.max(SegmentState.center_lat), func.max(SegmentState.center_lng),
+        )
+    ).one()
+    data_bbox = None
+    if bb[0] is not None:
+        data_bbox = {
+            "min_lat": bb[0], "min_lng": bb[1], "max_lat": bb[2], "max_lng": bb[3],
+            "center": [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2],
+            "viewer": f"/viewer",  # viewer auto-fits to this
+        }
+    return {
+        "devices": db.scalar(select(func.count()).select_from(Device)),
+        "raw_batches": db.scalar(select(func.count()).select_from(RawBatch)),
+        "raw_samples": int(db.scalar(select(func.coalesce(func.sum(RawBatch.n_samples), 0))) or 0),
+        "batch_status": {s: c for s, c in status_rows},
+        "observations": db.scalar(select(func.count()).select_from(SegmentObservation)),
+        "segments": db.scalar(select(func.count()).select_from(SegmentState)),
+        "data_bbox": data_bbox,
+    }
+
+
+@app.get("/v1/batches")
+def list_batches(limit: int = 50, db: Session = Depends(get_db)) -> dict:
+    """Recent raw uploads (metadata). Confirms data arrived and its processing state."""
+    rows = (
+        db.execute(select(RawBatch).order_by(RawBatch.t_start.desc()).limit(limit))
+        .scalars()
+        .all()
+    )
+    return {
+        "batches": [
+            {
+                "batch_id": b.id,
+                "device_id": b.device_id,
+                "session_id": b.session_id,
+                "status": b.status,
+                "n_samples": b.n_samples,
+                "t_start": b.t_start,
+                "t_end": b.t_end,
+                "bbox": ([b.min_lng, b.min_lat, b.max_lng, b.max_lat]
+                         if b.min_lat is not None else None),
+                "raw_url": f"/v1/batches/{b.id}/raw",
+            }
+            for b in rows
+        ]
+    }
+
+
+@app.get("/v1/batches/{batch_id}/raw")
+def get_raw_batch(batch_id: str, db: Session = Depends(get_db)) -> Response:
+    """Download the immutable raw payload (decompressed JSON) exactly as uploaded."""
+    b = db.get(RawBatch, batch_id)
+    if b is None:
+        raise HTTPException(status_code=404, detail="unknown batch")
+    try:
+        blob = get_store().get(b.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="raw blob not found in storage")
+    data = gzip.decompress(blob) if blob[:2] == b"\x1f\x8b" else blob
+    return Response(
+        content=data,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{batch_id}.json"'},
+    )
 
 
 @app.get("/healthz")
