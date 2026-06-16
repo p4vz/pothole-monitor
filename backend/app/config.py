@@ -1,6 +1,19 @@
 """Configuration. All values overridable via ROADSENSE_* env vars or a .env file."""
+import os
+from pathlib import Path
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_storage_dir() -> str:
+    """Persist raw blobs on a mounted /data volume when one is present (Railway),
+    otherwise fall back to a local dir. Avoids silently losing raw data to an
+    ephemeral filesystem when ROADSENSE_STORAGE_DIR isn't set."""
+    p = Path("/data")
+    if p.is_dir() and os.access(p, os.W_OK):
+        return "/data"
+    return "./_storage"
 
 
 class Settings(BaseSettings):
@@ -15,7 +28,8 @@ class Settings(BaseSettings):
         "sqlite:///./roadsense.db",
         validation_alias=AliasChoices("ROADSENSE_DATABASE_URL", "DATABASE_URL"),
     )
-    storage_dir: str = "./_storage"
+    # ROADSENSE_STORAGE_DIR overrides; else auto-detect a /data volume.
+    storage_dir: str = Field(default_factory=_default_storage_dir)
 
     # CORS: the public read API serves non-sensitive aggregate data, so "*" is
     # fine. Lock to your viewer origin in production if you prefer.
