@@ -59,6 +59,16 @@
   var motionHandler = null, geoWatch = null, batchTimer = null, uiTimer = null, wakeLock = null;
   var pending = 0, lastUpload = "never";
 
+  // ---- live readout + on-device pothole ping ----
+  var LIVE_SECONDS = 10;                       // rolling window shown on the plots
+  var POTHOLE_THRESH = CFG.POTHOLE_THRESH || 2.5;  // m/s^2 vertical jolt (matches server)
+  var live = [];        // recent samples {t, ax..gz} for plotting
+  var pings = [];       // recent detections {t, mag}
+  var gEma = null;      // EMA gravity estimate, for orientation-free vertical accel
+  var potCount = 0;     // detections this trip
+  var audioCtx = null;  // created on Start (user gesture) so the beep is allowed
+  var drawReq = null;
+
   function freshBatch() {
     imu = { t: [], ax: [], ay: [], az: [], gx: [], gy: [], gz: [] };
     gps = [];
@@ -68,14 +78,104 @@
     var a = e.accelerationIncludingGravity;
     if (!a || a.x == null) return;
     var t = Date.now() / 1000;
-    imu.t.push(t);
-    imu.ax.push(a.x); imu.ay.push(a.y); imu.az.push(a.z);
     var r = e.rotationRate || {};
     var d2r = Math.PI / 180;
     // rotationRate: beta=around x, gamma=around y, alpha=around z (deg/s).
-    imu.gx.push((r.beta || 0) * d2r);
-    imu.gy.push((r.gamma || 0) * d2r);
-    imu.gz.push((r.alpha || 0) * d2r);
+    var gx = (r.beta || 0) * d2r, gy = (r.gamma || 0) * d2r, gz = (r.alpha || 0) * d2r;
+
+    imu.t.push(t);
+    imu.ax.push(a.x); imu.ay.push(a.y); imu.az.push(a.z);
+    imu.gx.push(gx); imu.gy.push(gy); imu.gz.push(gz);
+
+    live.push({ t: t, ax: a.x, ay: a.y, az: a.z, gx: gx, gy: gy, gz: gz });
+
+    // Orientation-free vertical jolt: EMA gravity -> linear accel projected on
+    // gravity. A peak above threshold is a candidate pothole (debounced 0.6 s).
+    if (!gEma) gEma = [a.x, a.y, a.z];
+    var k = 0.04;
+    gEma[0] += k * (a.x - gEma[0]); gEma[1] += k * (a.y - gEma[1]); gEma[2] += k * (a.z - gEma[2]);
+    var gm = Math.hypot(gEma[0], gEma[1], gEma[2]) || 1;
+    var vert = ((a.x - gEma[0]) * gEma[0] + (a.y - gEma[1]) * gEma[1] + (a.z - gEma[2]) * gEma[2]) / gm;
+    var lastT = pings.length ? pings[pings.length - 1].t : 0;
+    if (Math.abs(vert) > POTHOLE_THRESH && t - lastT > 0.6) {
+      pings.push({ t: t, mag: Math.abs(vert) });
+      potCount++;
+      firePing(Math.abs(vert));
+    }
+  }
+
+  // ---- pothole feedback: flash a badge over the plots + short beep ----
+  function firePing(mag) {
+    var b = $("potholeBadge");
+    if (b) { b.classList.add("show"); clearTimeout(b._t); b._t = setTimeout(function () { b.classList.remove("show"); }, 1000); }
+    beep();
+    log("pothole detected (vert " + mag.toFixed(1) + " m/s²)");
+  }
+  function beep() {
+    try {
+      if (!audioCtx) return;
+      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = 880;
+      o.connect(g); g.connect(audioCtx.destination);
+      var t = audioCtx.currentTime;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.2, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.start(t); o.stop(t + 0.2);
+    } catch (e) { /* audio optional */ }
+  }
+
+  // ---- live plots: ax/ay/az and gx/gy/gz vs time, autoscaled, with ping marks ----
+  var AXIS_COLORS = ["#e74c3c", "#2ecc71", "#2a7de1"];
+  function sizeCanvas(c) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = c.clientWidth || 430;
+    var want = Math.round(w * dpr), wantH = Math.round((c.clientHeight || 110) * dpr);
+    if (c.width !== want || c.height !== wantH) { c.width = want; c.height = wantH; }
+    return dpr;
+  }
+  function drawSeries(canvas, keys, now, floorSpan) {
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d"), dpr = sizeCanvas(canvas);
+    var W = canvas.width, H = canvas.height, mid = H / 2, t0 = now - LIVE_SECONDS, t1 = now;
+    ctx.clearRect(0, 0, W, H);
+    var maxv = 0, i, k;
+    for (i = 0; i < live.length; i++) {
+      if (live[i].t < t0) continue;
+      for (k = 0; k < keys.length; k++) { var av = Math.abs(live[i][keys[k]]); if (av > maxv) maxv = av; }
+    }
+    var span = Math.max(maxv * 1.1, floorSpan);
+    function X(t) { return ((t - t0) / (t1 - t0)) * W; }
+    function Y(v) { return mid - (v / span) * (mid - 6 * dpr); }
+    ctx.strokeStyle = "#23303d"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(W, mid); ctx.stroke();
+    for (var pi = 0; pi < pings.length; pi++) {
+      if (pings[pi].t < t0) continue;
+      var px = X(pings[pi].t);
+      ctx.strokeStyle = "rgba(231,76,60,.55)"; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke(); ctx.setLineDash([]);
+    }
+    for (k = 0; k < keys.length; k++) {
+      ctx.strokeStyle = AXIS_COLORS[k]; ctx.lineWidth = 1.4 * dpr; ctx.beginPath();
+      var started = false;
+      for (i = 0; i < live.length; i++) {
+        var s = live[i]; if (s.t < t0) continue;
+        var x = X(s.t), y = Y(s[keys[k]]);
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#7a8694"; ctx.font = (10 * dpr) + "px system-ui"; ctx.textAlign = "right";
+    ctx.fillText("±" + span.toFixed(1), W - 4 * dpr, 12 * dpr);
+  }
+  function drawLive() {
+    if (!recording) return;
+    var now = Date.now() / 1000, t0 = now - LIVE_SECONDS - 0.5;
+    while (live.length && live[0].t < t0) live.shift();
+    while (pings.length && pings[0].t < t0) pings.shift();
+    drawSeries($("plotAccel"), ["ax", "ay", "az"], now, 4);
+    drawSeries($("plotGyro"), ["gx", "gy", "gz"], now, 1);
+    set("potCount", potCount ? potCount + (potCount === 1 ? " pothole" : " potholes") : "");
+    drawReq = requestAnimationFrame(drawLive);
   }
 
   function onPosition(p) {
@@ -160,6 +260,8 @@
       freshBatch();
       lastFix = null;
       sessionId = "web-" + Date.now();
+      live = []; pings = []; gEma = null; potCount = 0;
+      try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.resume) audioCtx.resume(); } catch (e) { /* audio optional */ }
 
       motionHandler = onMotion;
       window.addEventListener("devicemotion", motionHandler);
@@ -174,6 +276,7 @@
       $("toggle").textContent = "Stop trip";
       $("toggle").classList.add("stop");
       set("status", "● Recording — drive normally");
+      drawReq = requestAnimationFrame(drawLive);
       log("trip started");
       flush(); // send anything left from a previous trip
     } catch (err) {
@@ -187,6 +290,7 @@
     if (motionHandler) window.removeEventListener("devicemotion", motionHandler);
     if (geoWatch != null) navigator.geolocation.clearWatch(geoWatch);
     clearInterval(batchTimer); clearInterval(uiTimer);
+    if (drawReq) cancelAnimationFrame(drawReq); drawReq = null;
     if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
     await closeBatch();
     await flush();
