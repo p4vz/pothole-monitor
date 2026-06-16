@@ -22,6 +22,37 @@ def _load_payload(raw: bytes) -> dict:
     return json.loads(raw.decode("utf-8"))
 
 
+def reprocess_all() -> dict:
+    """Rebuild ALL derived data (observations + segment state) from the immutable
+    raw batches. Use after an algorithm change or to backfill new fields (e.g.
+    per-segment sample ranges) on data ingested by an older build. Requires the
+    raw blobs to still exist in storage."""
+    from sqlalchemy import delete, select, update
+
+    from .models import SegmentObservation, SegmentState
+
+    session = SessionLocal()
+    try:
+        session.execute(delete(SegmentObservation))
+        session.execute(delete(SegmentState))
+        session.execute(update(RawBatch).values(status="pending", processed_at=None, error=None))
+        session.commit()
+        ids = list(session.execute(select(RawBatch.id)).scalars())
+    finally:
+        session.close()
+
+    ok = missing = failed = 0
+    for bid in ids:
+        try:
+            process_batch(bid)
+            ok += 1
+        except FileNotFoundError:
+            missing += 1  # raw blob gone (storage wasn't persisted)
+        except Exception:  # noqa: BLE001
+            failed += 1
+    return {"total": len(ids), "reprocessed": ok, "missing_raw": missing, "failed": failed}
+
+
 def process_batch(batch_id: str) -> int:
     """Process one stored raw batch. Returns number of observations emitted."""
     session = SessionLocal()

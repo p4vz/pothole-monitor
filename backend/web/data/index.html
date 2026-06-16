@@ -48,6 +48,7 @@
         <a class="btn" id="dlGeojson" href="#">Download segments (GeoJSON)</a>
         <button id="dlCsv">Download segments (CSV)</button>
         <a class="btn alt" id="apiSeg" href="#" target="_blank">View JSON</a>
+        <button id="reprocess" style="background:#8e44ad">Rebuild from raw</button>
         <div class="muted" id="segNote" style="margin-top:6px"></div>
       </div>
 
@@ -110,9 +111,14 @@
             `<div class="stat"><div class="n">${n ?? 0}</div><div class="l">${l}</div></div>`).join("");
           const st = s.batch_status || {};
           const stText = Object.keys(st).length ? " · status " + Object.entries(st).map(([k, v]) => `${k}:${v}`).join(", ") : "";
-          $("bbox").textContent = s.data_bbox
-            ? `data centre ≈ ${s.data_bbox.center[0].toFixed(4)}, ${s.data_bbox.center[1].toFixed(4)}${stText}`
-            : "no compiled data yet — record a trip in the collector" + stText;
+          const where = s.data_bbox
+            ? `data centre ≈ ${s.data_bbox.center[0].toFixed(4)}, ${s.data_bbox.center[1].toFixed(4)}`
+            : "no compiled data yet — record a trip in the collector";
+          const st2 = s.storage || {};
+          const storageNote = st2.dir
+            ? ` · storage ${st2.dir} ${st2.persisted ? "(persisted)" : "(⚠ ephemeral — set ROADSENSE_STORAGE_DIR to a volume)"}${st2.latest_blob_present === false ? ", latest raw blob MISSING" : ""}`
+            : "";
+          $("bbox").textContent = where + stText + storageNote;
         } catch (e) {
           $("stats").innerHTML = `<span class="muted">error reaching API (${API}): ${e.message}</span>`;
         }
@@ -155,6 +161,17 @@
           if (!g.features.length) { $("segNote").textContent = "no segments to export yet"; return; }
           download("segments.csv", toCsv(g), "text/csv");
         } catch (err) { $("segNote").textContent = `download failed: ${err.message}`; }
+      });
+
+      $("reprocess").addEventListener("click", async () => {
+        $("segNote").textContent = "rebuilding from raw…";
+        try {
+          const r = await (await fetch(`${API}/v1/reprocess`, { method: "POST" })).json();
+          $("segNote").textContent =
+            `rebuilt ${r.reprocessed}/${r.total} batches (missing raw: ${r.missing_raw}, failed: ${r.failed}).` +
+            (r.missing_raw ? " Missing raw means blobs weren't persisted — set a storage volume and re-record." : "");
+          load();
+        } catch (err) { $("segNote").textContent = `rebuild failed: ${err.message}`; }
       });
 
       load();

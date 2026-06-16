@@ -261,6 +261,17 @@ def stats(db: Session = Depends(get_db)) -> dict:
             "center": [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2],
             "viewer": f"/viewer",  # viewer auto-fits to this
         }
+    # Storage diagnostics: is raw actually persisted? (the latest blob present,
+    # and is the dir an absolute mounted path vs ephemeral ./_storage).
+    latest = db.execute(
+        select(RawBatch).order_by(RawBatch.received_at.desc()).limit(1)
+    ).scalar_one_or_none()
+    store = get_store()
+    storage = {
+        "dir": settings.storage_dir,
+        "persisted": settings.storage_dir.startswith("/"),
+        "latest_blob_present": bool(latest and store.exists(latest.storage_key)),
+    }
     return {
         "devices": db.scalar(select(func.count()).select_from(Device)),
         "raw_batches": db.scalar(select(func.count()).select_from(RawBatch)),
@@ -269,7 +280,18 @@ def stats(db: Session = Depends(get_db)) -> dict:
         "observations": db.scalar(select(func.count()).select_from(SegmentObservation)),
         "segments": db.scalar(select(func.count()).select_from(SegmentState)),
         "data_bbox": data_bbox,
+        "storage": storage,
     }
+
+
+@app.post("/v1/reprocess")
+def reprocess(db: Session = Depends(get_db)) -> dict:
+    """Rebuild all derived data (observations + segment state) from the immutable
+    raw batches — backfills new fields like per-segment sample ranges on data
+    ingested by an older build. No-op-safe; needs the raw blobs to still exist."""
+    from .pipeline import reprocess_all
+
+    return reprocess_all()
 
 
 @app.get("/v1/batches")
@@ -336,21 +358,25 @@ def get_segment_raw(segment_key: str, limit: int = 200, db: Session = Depends(ge
     )
     cache: dict[str, dict] = {}
     passes = []
+    skipped = {"missing_blob": 0, "no_sample_range": 0}
     for o in rows:
         batch = db.get(RawBatch, o.batch_id)
         if batch is None:
+            skipped["missing_blob"] += 1
             continue
         payload = cache.get(o.batch_id)
         if payload is None:
             try:
                 payload = _load_payload(get_store().get(batch.storage_key))
             except FileNotFoundError:
+                skipped["missing_blob"] += 1
                 continue
             cache[o.batch_id] = payload
         imu = payload.get("imu", {})
         t = imu.get("t", [])
         s, e = o.sample_start, min(o.sample_end, len(t))
         if e <= s:
+            skipped["no_sample_range"] += 1  # ingested before sample ranges existed
             continue
         imu_slice = {k: imu.get(k, [])[s:e] for k in ("t", "ax", "ay", "az", "gx", "gy", "gz")}
         t0, t1 = t[s], t[e - 1]
@@ -366,11 +392,19 @@ def get_segment_raw(segment_key: str, limit: int = 200, db: Session = Depends(ge
                 "gps": gps,
             }
         )
+    note = None
+    if not passes and rows:
+        if skipped["missing_blob"]:
+            note = "Raw blobs are missing from storage (not persisted across redeploys). Set ROADSENSE_STORAGE_DIR to a mounted volume and re-record."
+        elif skipped["no_sample_range"]:
+            note = "These passes were ingested before per-segment sample ranges existed. POST /v1/reprocess (or use 'Rebuild from raw' on /data) to backfill them."
     return {
         "segment_key": segment_key,
         "n_passes": len(passes),
         "total_samples": sum(p["n_samples"] for p in passes),
         "passes": passes,
+        "skipped": skipped,
+        "note": note,
     }
 
 
