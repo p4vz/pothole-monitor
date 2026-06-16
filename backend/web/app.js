@@ -66,7 +66,8 @@
   var pings = [];       // recent detections {t, mag}
   var gEma = null;      // EMA gravity estimate, for orientation-free vertical accel
   var potCount = 0;     // detections this trip
-  var audioCtx = null;  // created on Start (user gesture) so the beep is allowed
+  var soundEnabled = false;  // audible ding is opt-in (off by default, stays silent)
+  var audioCtx = null;  // created only when the user ticks the sound checkbox
   var drawReq = null;
 
   function freshBatch() {
@@ -113,7 +114,7 @@
   }
   function beep() {
     try {
-      if (!audioCtx) return;
+      if (!soundEnabled || !audioCtx) return;
       var o = audioCtx.createOscillator(), g = audioCtx.createGain();
       o.type = "sine"; o.frequency.value = 880;
       o.connect(g); g.connect(audioCtx.destination);
@@ -261,7 +262,6 @@
       lastFix = null;
       sessionId = "web-" + Date.now();
       live = []; pings = []; gEma = null; potCount = 0;
-      try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.resume) audioCtx.resume(); } catch (e) { /* audio optional */ }
 
       motionHandler = onMotion;
       window.addEventListener("devicemotion", motionHandler);
@@ -306,6 +306,19 @@
   document.addEventListener("DOMContentLoaded", function () {
     set("api", API);
     $("toggle").addEventListener("click", function () { recording ? stop() : start(); });
+    // Audible ding is opt-in. Ticking the box is the user gesture that lets the
+    // browser create/resume audio (it may prompt); unticking goes silent again.
+    var st = $("soundToggle");
+    if (st) st.addEventListener("change", function () {
+      soundEnabled = st.checked;
+      if (soundEnabled) {
+        try {
+          audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+          if (audioCtx.resume) audioCtx.resume();
+          beep(); // tiny confirmation tone
+        } catch (e) { log("sound unavailable: " + e.message); soundEnabled = st.checked = false; }
+      }
+    });
     refreshUI();
     flush(); // resume any pending uploads from a previous session
     // Surface backend reachability early.

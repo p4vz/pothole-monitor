@@ -50,7 +50,10 @@
       </div>
 
       <div class="card" id="liveCard">
-        <div class="muted">Live motion — last 10 s <span id="potCount" style="float:right;color:#e74c3c;font-weight:600"></span></div>
+        <div class="muted">Live motion — last 10 s
+          <label style="float:right;cursor:pointer;color:#666"><input type="checkbox" id="soundToggle" style="vertical-align:middle"> 🔊 ding on pothole</label>
+        </div>
+        <div class="muted" id="potCount" style="color:#e74c3c;font-weight:600;min-height:14px"></div>
         <div class="plotwrap">
           <div class="axislabel">accel m/s²</div>
           <canvas id="plotAccel"></canvas>
