@@ -15,4 +15,10 @@ window.CONFIG = {
   // Offline-safe upload retry (exponential backoff).
   UPLOAD_RETRY_BASE_MS: 2000,
   UPLOAD_MAX_RETRIES: 4,
+
+  // Native app store links (shown on the page). Leave "" until published — the
+  // button then shows "coming soon". Set to your App Store / Play Store /
+  // TestFlight / APK URLs once the builds are live.
+  APP_IOS_URL: "",
+  APP_ANDROID_URL: "",
 };

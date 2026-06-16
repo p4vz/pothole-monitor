@@ -20,7 +20,7 @@ viewer (Leaflet + OSM)  ◀──── GET /v1/segments (GeoJSON) ────�
 | [`backend/`](backend/) | Ingestion + analysis + Bayesian aggregation + read API + ML; **also serves the web UI** | **Implemented & tested** (23 tests, runs on SQLite + local FS) |
 | [`backend/web/`](backend/web/) | **Web collector** (`/`) — logs motion+GPS in-browser, uploads to backend; no app install | Implemented |
 | [`backend/web/viewer/`](backend/web/viewer/) | Condition map (`/viewer`) + segment detail/history panel | Implemented (keyless Leaflet/OSM) |
-| [`collector/`](collector/) | Native RN/Expo collector (alternative to the web one) | Skeleton (core data path) |
+| [`collector/`](collector/) | Native iOS/Android app: auto-detects driving, captures in the background (battery-light), uploads | Implemented (needs an EAS build to ship) |
 
 The backend serves the collector at `/` and the viewer at `/viewer` from the
 **same origin** as the API, so one Railway service hosts everything — no CORS,

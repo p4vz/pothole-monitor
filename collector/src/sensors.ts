@@ -25,7 +25,7 @@ export class Recorder {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   public onFlush?: () => void; // hook the uploader in here
 
-  async start() {
+  async start(opts: { withGps?: boolean } = {}) {
     const intervalMs = 1000 / CONFIG.IMU_RATE_HZ;
     Accelerometer.setUpdateInterval(intervalMs);
     Gyroscope.setUpdateInterval(intervalMs);
@@ -45,21 +45,28 @@ export class Recorder {
       })
     );
 
-    this.gpsSub = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.BestForNavigation, timeInterval: CONFIG.GPS_INTERVAL_MS, distanceInterval: 0 },
-      (loc) => {
-        this.gps.push({
-          t: loc.timestamp / 1000,
-          lat: loc.coords.latitude,
-          lng: loc.coords.longitude,
-          speed: loc.coords.speed ?? 0,
-          heading: loc.coords.heading ?? 0,
-          acc: loc.coords.accuracy ?? 0,
-        });
-      }
-    );
+    // In auto-capture mode GPS is fed in via addGps() from the background task,
+    // so we skip this foreground watch to avoid a second (battery-costly) stream.
+    if (opts.withGps !== false) {
+      this.gpsSub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.BestForNavigation, timeInterval: CONFIG.GPS_INTERVAL_MS, distanceInterval: 0 },
+        (loc) => this.addGps(loc)
+      );
+    }
 
     this.flushTimer = setInterval(() => this.flush(), CONFIG.BATCH_SECONDS * 1000);
+  }
+
+  // Accept a location fix from an external source (the background drive task).
+  addGps(loc: Location.LocationObject) {
+    this.gps.push({
+      t: loc.timestamp / 1000,
+      lat: loc.coords.latitude,
+      lng: loc.coords.longitude,
+      speed: loc.coords.speed ?? 0,
+      heading: loc.coords.heading ?? 0,
+      acc: loc.coords.accuracy ?? 0,
+    });
   }
 
   async flush() {

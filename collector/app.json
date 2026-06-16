@@ -6,9 +6,9 @@
     "orientation": "portrait",
     "ios": {
       "infoPlist": {
-        "UIBackgroundModes": ["location"],
+        "UIBackgroundModes": ["location", "fetch", "processing"],
         "NSLocationWhenInUseUsageDescription": "Records your route to map road conditions.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Keeps logging road conditions while driving with the screen off.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Detects driving and keeps logging road conditions in the background.",
         "NSMotionUsageDescription": "Reads motion sensors to detect road roughness and potholes."
       }
     },
@@ -16,11 +16,25 @@
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
+        "ACTIVITY_RECOGNITION",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_LOCATION",
-        "HIGH_SAMPLING_RATE_SENSORS"
+        "HIGH_SAMPLING_RATE_SENSORS",
+        "POST_NOTIFICATIONS",
+        "WAKE_LOCK"
       ]
     },
-    "plugins": ["expo-location", "expo-sensors"]
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "locationAlwaysAndWhenInUsePermission": "Detects driving and keeps logging road conditions in the background."
+        }
+      ],
+      "expo-sensors",
+      "expo-notifications"
+    ]
   }
 }

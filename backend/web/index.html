@@ -22,6 +22,9 @@
       a { color: #2a7de1; }
       pre#log { background: #11151a; color: #9fe7b0; font-size: 11px; border-radius: 10px;
         padding: 10px; height: 110px; overflow: auto; white-space: pre-wrap; }
+      .store { display: inline-block; border-radius: 10px; background: #111; color: #fff;
+        text-decoration: none; padding: 10px 14px; font-size: 14px; font-weight: 600; margin: 6px 8px 0 0; }
+      .store.disabled { background: #c3c8d0; color: #fff; pointer-events: none; }
     </style>
   </head>
   <body>
@@ -47,10 +50,34 @@
       <div class="card">
         <div class="muted">Activity</div>
         <pre id="log"></pre>
-        <div class="muted">API: <span id="api"></span> · <a href="viewer/">open condition map →</a></div>
+        <div class="muted">API: <span id="api"></span> · <a href="viewer/">open condition map →</a> · <a href="data/">data &amp; downloads →</a></div>
+      </div>
+
+      <div class="card">
+        <h1 style="font-size:16px;margin:0 0 4px">Get the mobile app</h1>
+        <div class="muted" style="margin-bottom:8px">Auto-detects driving and captures road data in the background — minimal battery, screen off. No need to keep this page open.</div>
+        <a id="iosLink" class="store" href="#"> iPhone</a>
+        <a id="androidLink" class="store" href="#">▶ Android</a>
+        <div class="muted" id="appNote" style="margin-top:8px"></div>
       </div>
     </div>
     <script src="config.js"></script>
     <script src="app.js"></script>
+    <script>
+      // Wire the store buttons from CONFIG; show "coming soon" until published.
+      (function () {
+        var C = window.CONFIG || {};
+        function wire(id, url) {
+          var a = document.getElementById(id);
+          if (url) { a.href = url; } else { a.classList.add("disabled"); a.href = "#"; }
+        }
+        wire("iosLink", C.APP_IOS_URL);
+        wire("androidLink", C.APP_ANDROID_URL);
+        if (!C.APP_IOS_URL && !C.APP_ANDROID_URL) {
+          document.getElementById("appNote").textContent =
+            "Apps coming soon — set APP_IOS_URL / APP_ANDROID_URL in config.js once your builds are published. Meanwhile, use this web collector.";
+        }
+      })();
+    </script>
   </body>
 </html>
