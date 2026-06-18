@@ -98,6 +98,23 @@ class EventPoint(Base):
     heading_bucket: Mapped[int] = mapped_column(Integer)
 
 
+class Photo(Base):
+    """A user-uploaded photo of a pothole, pinned to a location (and optionally
+    a segment). User content — NOT re-derivable — so it survives reprocessing.
+    The image bytes live in object storage; only metadata is in the DB."""
+
+    __tablename__ = "photos"
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    segment_key: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    lat: Mapped[float] = mapped_column(Float, index=True)
+    lng: Mapped[float] = mapped_column(Float, index=True)
+    storage_key: Mapped[str] = mapped_column(String)
+    content_type: Mapped[str] = mapped_column(String, default="image/jpeg")
+    caption: Mapped[str | None] = mapped_column(String, nullable=True)
+    device_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class SegmentState(Base):
     """Aggregated, continuously-updated condition for one road segment.
 

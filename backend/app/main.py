@@ -13,7 +13,10 @@ from pathlib import Path
 
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import (
+    BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException,
+    Request, Response, UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
@@ -21,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import SessionLocal, init_db
-from .models import Device, EventPoint, RawBatch, SegmentObservation, SegmentState
+from .models import Device, EventPoint, Photo, RawBatch, SegmentObservation, SegmentState
 from .analysis import vertical_jerk_events
 from .defects import cluster_defects
 from .pipeline import _load_payload, process_batch
@@ -208,15 +211,109 @@ def get_defects(bbox: str | None = None, db: Session = Depends(get_db)) -> dict:
             EventPoint.lng <= max_lng,
         )
     points = list(db.execute(stmt).scalars())
+    defects = cluster_defects(points)
+
+    # Link each defect to the nearest segment so the viewer's "raw data +
+    # conclusion" button can open that segment's full detail + sensor traces.
+    if defects:
+        centers = db.execute(
+            select(SegmentState.segment_key, SegmentState.center_lat, SegmentState.center_lng)
+        ).all()
+        for d in defects:
+            best_key, best_d2 = None, None
+            for sk, clat, clng in centers:
+                d2 = (clat - d["lat"]) ** 2 + (clng - d["lng"]) ** 2
+                if best_d2 is None or d2 < best_d2:
+                    best_key, best_d2 = sk, d2
+            d["segment_key"] = best_key
+
     features = [
         {
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [d["lng"], d["lat"]]},
             "properties": d,
         }
-        for d in cluster_defects(points)
+        for d in defects
     ]
     return {"type": "FeatureCollection", "features": features}
+
+
+# --------------------------------------------------------------------------- #
+# Pothole photos: user-uploaded pictures pinned to a location / segment
+# --------------------------------------------------------------------------- #
+@app.post("/v1/photos", status_code=201)
+async def upload_photo(
+    file: UploadFile = File(...),
+    lat: float = Form(...),
+    lng: float = Form(...),
+    segment_key: str | None = Form(default=None),
+    caption: str | None = Form(default=None),
+    x_device_token: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+    if len(data) > settings.max_photo_bytes:
+        raise HTTPException(status_code=413, detail="photo too large")
+    ctype = file.content_type or "image/jpeg"
+    if not ctype.startswith("image/"):
+        raise HTTPException(status_code=400, detail="not an image")
+    pid = uuid.uuid4().hex
+    key = f"photos/{pid}"
+    get_store().put(key, data)
+    photo = Photo(
+        id=pid, segment_key=segment_key, lat=lat, lng=lng, storage_key=key,
+        content_type=ctype, caption=caption, device_id=x_device_token,
+    )
+    db.add(photo)
+    db.commit()
+    return {"id": pid, "url": f"/v1/photos/{pid}"}
+
+
+def _photo_json(p: Photo) -> dict:
+    return {
+        "id": p.id,
+        "url": f"/v1/photos/{p.id}",
+        "lat": p.lat,
+        "lng": p.lng,
+        "segment_key": p.segment_key,
+        "caption": p.caption,
+        "created_at": p.created_at.replace(tzinfo=timezone.utc).isoformat(),
+    }
+
+
+@app.get("/v1/photos")
+def list_photos(
+    bbox: str | None = None,
+    segment_key: str | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Photos by map viewport (`bbox`) or attached to one `segment_key`."""
+    stmt = select(Photo).order_by(Photo.created_at.desc())
+    if segment_key:
+        stmt = stmt.where(Photo.segment_key == segment_key)
+    box = _parse_bbox(bbox)
+    if box:
+        min_lng, min_lat, max_lng, max_lat = box
+        stmt = stmt.where(
+            Photo.lat >= min_lat, Photo.lat <= max_lat,
+            Photo.lng >= min_lng, Photo.lng <= max_lng,
+        )
+    return {"photos": [_photo_json(p) for p in db.execute(stmt.limit(200)).scalars()]}
+
+
+@app.get("/v1/photos/{photo_id}")
+def get_photo(photo_id: str, db: Session = Depends(get_db)) -> Response:
+    p = db.get(Photo, photo_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="unknown photo")
+    try:
+        data = get_store().get(p.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="photo blob missing")
+    return Response(content=data, media_type=p.content_type,
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/v1/segments/{segment_key}")

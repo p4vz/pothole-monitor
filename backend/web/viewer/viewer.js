@@ -134,6 +134,84 @@ async function loadRawPlots(segmentKey) {
   }
 }
 
+// ---- pothole photos: upload + gallery, reused by segment detail & defect popups ----
+function bboxAround(lat, lng, m = 25) {
+  const dLat = m / 111111, dLng = m / (111111 * Math.cos((lat * Math.PI) / 180));
+  return [lng - dLng, lat - dLat, lng + dLng, lat + dLat].join(",");
+}
+
+async function uploadPhoto(file, lat, lng, segKey) {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("lat", lat);
+  fd.append("lng", lng);
+  if (segKey) fd.append("segment_key", segKey);
+  const tok = localStorage.getItem("rs_token");
+  const res = await fetch(`${API}/v1/photos`, {
+    method: "POST", body: fd, headers: tok ? { "X-Device-Token": tok } : {},
+  });
+  if (!res.ok) throw new Error(`upload failed (${res.status})`);
+  return res.json();
+}
+
+// One reusable hidden file input; `capture` opens the camera on phones.
+let _photoInput = null;
+function pickPhoto(onPick) {
+  if (!_photoInput) {
+    _photoInput = document.createElement("input");
+    _photoInput.type = "file";
+    _photoInput.accept = "image/*";
+    _photoInput.capture = "environment";
+    _photoInput.style.display = "none";
+    document.body.appendChild(_photoInput);
+  }
+  _photoInput.value = "";
+  _photoInput.onchange = () => { if (_photoInput.files[0]) onPick(_photoInput.files[0]); };
+  _photoInput.click();
+}
+
+function photosHTML(photos) {
+  if (!photos.length) return '<span class="muted">No photos yet.</span>';
+  return '<div class="thumbs">' + photos
+    .map((p) => `<a href="${API}${p.url}" target="_blank"><img src="${API}${p.url}" loading="lazy" alt="pothole"></a>`)
+    .join("") + "</div>";
+}
+
+// Render an "Add photo" button + live gallery into `elId`, scoped to a segment
+// (by key) or a defect (by lat/lng). Uploads refresh the gallery in place.
+async function renderPhotos(elId, opts) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const query = opts.segKey
+    ? `segment_key=${encodeURIComponent(opts.segKey)}`
+    : `bbox=${bboxAround(opts.lat, opts.lng)}`;
+  el.innerHTML = '<button class="photo-btn">📷 Add photo</button>' +
+    '<span class="up-status muted"></span><div class="thumbs-wrap muted">loading…</div>';
+  const wrap = el.querySelector(".thumbs-wrap");
+  const status = el.querySelector(".up-status");
+  async function reload() {
+    try {
+      const { photos } = await (await fetch(`${API}/v1/photos?${query}`)).json();
+      wrap.innerHTML = photosHTML(photos);
+    } catch (e) { wrap.innerHTML = `<span class="muted">couldn't load photos</span>`; }
+  }
+  el.querySelector(".photo-btn").onclick = () => pickPhoto(async (file) => {
+    status.textContent = " uploading…";
+    try {
+      await uploadPhoto(file, opts.lat, opts.lng, opts.segKey);
+      status.textContent = " ✓ added";
+      reload();
+    } catch (e) { status.textContent = " ✗ " + e.message; }
+  });
+  reload();
+}
+
+// Defect popup buttons call these.
+window.__rsRaw = (segKey) => {
+  if (segKey) showDetail(segKey);
+  else alert("No analyzed segment is linked to this defect yet — drive it again to build a conclusion.");
+};
+
 async function showDetail(segmentKey) {
   const el = document.getElementById("detail");
   el.style.display = "block";
@@ -158,9 +236,13 @@ async function showDetail(segmentKey) {
       </table>
       ${sparkline(series)}
       <span class="muted">${d.history.length} passes · last ${new Date(d.last_seen).toLocaleString()}</span>
+      <h2 style="margin-top:10px">Photos</h2>
+      <div id="segPhotos"></div>
       <h2 style="margin-top:10px">Raw sensor traces</h2>
       <div id="rawPlots" class="muted">loading sensor traces…</div>
       <div style="margin-top:8px"><a href="${API}/v1/segments/${segmentKey}/raw" target="_blank">download raw sensor data →</a></div>`;
+    const loc = d.estimated_location && d.estimated_location[0] ? d.estimated_location : d.center;
+    renderPhotos("segPhotos", { lat: loc[0], lng: loc[1], segKey: d.segment_key });
     loadRawPlots(segmentKey);
   } catch (err) {
     el.innerHTML = `<span class="muted">error: ${err.message}</span>`;
@@ -202,6 +284,7 @@ let showDefects = true;
 // Phase 3: physical defects clustered from jolt points across passes/devices —
 // authoritative pothole markers, independent of the H3 grid. Severity 0..3.
 const DEFECT_COLOR = ["#2ecc71", "#f1c40f", "#e67e22", "#e74c3c"];
+const DEFECT_LABEL = ["faint", "minor", "moderate", "severe"];
 
 async function drawDefects(bbox) {
   if (defectLayer) { defectLayer.remove(); defectLayer = null; }
@@ -212,15 +295,24 @@ async function drawDefects(bbox) {
     const p = f.properties;
     const [lng, lat] = f.geometry.coordinates;
     const color = DEFECT_COLOR[p.severity] || "#e74c3c";
-    L.circleMarker([lat, lng], {
+    const segArg = (p.segment_key || "").replace(/'/g, "");
+    const photosId = "defphotos-" + p.id;
+    const marker = L.circleMarker([lat, lng], {
       radius: 7, color: "#111", weight: 2, fillColor: color,
       fillOpacity: 0.5 + 0.5 * p.confidence,
-    })
-      .bindTooltip(
-        `defect · ${p.n_devices} device(s), ${p.n_points} hit(s)` +
-          ` · ±${p.radius_m} m · ${(p.confidence * 100).toFixed(0)}% conf`
-      )
-      .addTo(defectLayer);
+    }).bindPopup(
+      `<div class="defpop">
+        <b>Pothole — ${DEFECT_LABEL[p.severity] || "severe"}</b><br>
+        <span class="muted">${p.n_devices} device(s) · ${p.n_points} hit(s) · ±${p.radius_m} m · ${(p.confidence * 100).toFixed(0)}% conf</span>
+        <div class="popbtns"><button onclick="window.__rsRaw('${segArg}')">📊 Raw data + conclusion</button></div>
+        <div id="${photosId}"></div>
+      </div>`,
+      { maxWidth: 250 }
+    );
+    marker.on("popupopen", () =>
+      renderPhotos(photosId, { lat, lng, segKey: p.segment_key })
+    );
+    marker.addTo(defectLayer);
   }
   defectLayer.addTo(map);
   return fc.features.length;

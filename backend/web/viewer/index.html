@@ -34,6 +34,16 @@
     .trend-worsening { color: #e74c3c; font-weight: 600; }
     .trend-improving { color: #2ecc71; font-weight: 600; }
     .trend-stable { color: #888; }
+    .detail button, .leaflet-popup-content button, .photo-btn {
+      font: inherit; font-size: 12px; cursor: pointer; border: 1px solid #ccc;
+      background: #f5f6f8; border-radius: 6px; padding: 5px 9px; margin: 2px 4px 2px 0;
+    }
+    .detail button:hover, .leaflet-popup-content button:hover { background: #eaecef; }
+    .thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+    .thumbs img { width: 62px; height: 62px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; }
+    .popbtns { margin: 6px 0 4px; }
+    .up-status { font-size: 11px; }
+    .leaflet-popup-content { margin: 10px 12px; min-width: 180px; }
   </style>
 </head>
 <body>
@@ -51,7 +61,8 @@
     </label>
     <label><input id="defects" type="checkbox" checked /> Show clustered defects</label>
     <div class="muted">Hex = ~25 m road tile (opacity ∝ confidence). Dot = precise
-      pothole. Ringed marker = defect clustered across passes. Click a hex for detail.</div>
+      pothole. Ringed marker = defect clustered across passes. Click a hex/dot for
+      raw data + conclusion; click a defect to add a photo.</div>
     <div class="muted" id="status">loading…</div>
   </div>
   <div class="detail" id="detail"></div>

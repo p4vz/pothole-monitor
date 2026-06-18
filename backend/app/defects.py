@@ -81,7 +81,7 @@ def cluster_defects(points: list, cfg=settings) -> list[dict]:
         groups.setdefault(uf.find(cell), []).append(i)
 
     defects: list[dict] = []
-    for idxs in groups.values():
+    for root, idxs in groups.items():
         members = [pts[i] for i in idxs]
         # Weight the centroid by jolt magnitude (stronger hits are better
         # localized) to pull the marker toward the true defect.
@@ -99,6 +99,7 @@ def cluster_defects(points: list, cfg=settings) -> list[dict]:
         confidence = 1.0 - 0.5 ** n_dev
         defects.append(
             {
+                "id": str(root),  # stable cluster id (union-find root cell)
                 "lat": round(clat, 7),
                 "lng": round(clng, 7),
                 "severity": max(m[3] for m in members),

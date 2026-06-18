@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     defect_cluster_res: int = 13     # ~3.5 m H3 cells used to bin event points
     defect_cluster_k: int = 2        # union event cells within this k-ring
 
+    # --- User photo uploads ---
+    max_photo_bytes: int = 8_000_000  # reject larger uploads (~8 MB)
+
     # --- Aggregation ("state of the road") ---
     defect_roughness_thresh: float = 1.2  # roughness above this also counts as a defect
     decay_halflife_days: float = 90.0     # recency decay => roads heal after repaving
