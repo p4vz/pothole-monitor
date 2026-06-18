@@ -25,6 +25,11 @@
       .store { display: inline-block; border-radius: 10px; background: #111; color: #fff;
         text-decoration: none; padding: 10px 14px; font-size: 14px; font-weight: 600; margin: 6px 8px 0 0; }
       .store.disabled { background: #c3c8d0; color: #fff; pointer-events: none; }
+      .maplink { display: block; text-align: center; text-decoration: none;
+        background: #2a7de1; color: #fff; font-size: 17px; font-weight: 700;
+        padding: 15px; border-radius: 12px; margin-bottom: 14px;
+        box-shadow: 0 1px 6px rgba(42,125,225,.35); }
+      .maplink:hover { background: #1f6fcc; }
       .plotwrap { position: relative; margin-top: 6px; }
       .plotwrap canvas { width: 100%; height: 110px; display: block; background: #0f141a; border-radius: 8px; }
       .axislabel { position: absolute; top: 4px; left: 8px; font-size: 10px; color: #7a8694; z-index: 2; }
@@ -42,6 +47,8 @@
     <div class="wrap">
       <h1>RoadSense collector</h1>
       <div class="sub">Logs motion + GPS while you drive and uploads raw data to the backend. No account, no token — analysis happens server-side.</div>
+
+      <a href="viewer/" class="maplink">🗺️ View the road condition map →</a>
 
       <div class="card">
         <div id="status">Idle</div>
@@ -84,7 +91,7 @@
       <div class="card">
         <div class="muted">Activity</div>
         <pre id="log"></pre>
-        <div class="muted">API: <span id="api"></span> · <a href="viewer/">open condition map →</a> · <a href="data/">data &amp; downloads →</a></div>
+        <div class="muted">API: <span id="api"></span> · <a href="data/">data &amp; downloads →</a></div>
       </div>
 
       <div class="card">
