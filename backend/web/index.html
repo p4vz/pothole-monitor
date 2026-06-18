@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>RoadSense — collector</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { margin: 0; font-family: system-ui, sans-serif; background: #f5f6f8; color: #1a1a1a; }
+      .wrap { max-width: 460px; margin: 0 auto; padding: 20px 16px 40px; }
+      h1 { font-size: 20px; margin: 8px 0 2px; }
+      .sub { color: #666; font-size: 13px; margin-bottom: 16px; }
+      .card { background: #fff; border-radius: 14px; box-shadow: 0 1px 6px rgba(0,0,0,.08); padding: 16px; margin-bottom: 14px; }
+      #status { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+      button#toggle { width: 100%; border: 0; border-radius: 12px; background: #2ecc71; color: #fff;
+        font-size: 19px; font-weight: 700; padding: 16px; cursor: pointer; }
+      button#toggle.stop { background: #e74c3c; }
+      table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      td { padding: 4px 0; }
+      td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: #333; }
+      .muted { color: #888; font-size: 12px; }
+      a { color: #2a7de1; }
+      pre#log { background: #11151a; color: #9fe7b0; font-size: 11px; border-radius: 10px;
+        padding: 10px; height: 110px; overflow: auto; white-space: pre-wrap; }
+      .store { display: inline-block; border-radius: 10px; background: #111; color: #fff;
+        text-decoration: none; padding: 10px 14px; font-size: 14px; font-weight: 600; margin: 6px 8px 0 0; }
+      .store.disabled { background: #c3c8d0; color: #fff; pointer-events: none; }
+      .maplink { display: block; text-align: center; text-decoration: none;
+        background: #2a7de1; color: #fff; font-size: 17px; font-weight: 700;
+        padding: 15px; border-radius: 12px; margin-bottom: 14px;
+        box-shadow: 0 1px 6px rgba(42,125,225,.35); }
+      .maplink:hover { background: #1f6fcc; }
+      .plotwrap { position: relative; margin-top: 6px; }
+      .plotwrap canvas { width: 100%; height: 110px; display: block; background: #0f141a; border-radius: 8px; }
+      .axislabel { position: absolute; top: 4px; left: 8px; font-size: 10px; color: #7a8694; z-index: 2; }
+      .legend { font-size: 11px; color: #888; margin: 5px 2px 0; }
+      .legend b { font-weight: 700; }
+      .dotx { color: #e74c3c; } .doty { color: #2ecc71; } .dotz { color: #2a7de1; }
+      .pothole-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(.9);
+        background: #e74c3c; color: #fff; font-weight: 800; font-size: 18px; letter-spacing: .5px;
+        padding: 8px 16px; border-radius: 10px; box-shadow: 0 2px 16px rgba(231,76,60,.65);
+        opacity: 0; pointer-events: none; transition: opacity .12s ease, transform .12s ease; z-index: 3; }
+      .pothole-badge.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>RoadSense collector</h1>
+      <div class="sub">Logs motion + GPS while you drive and uploads raw data to the backend. No account, no token — analysis happens server-side.</div>
+
+      <a href="viewer/" class="maplink">🗺️ View the road condition map →</a>
+
+      <div class="card">
+        <div id="status">Idle</div>
+        <button id="toggle">Start trip</button>
+        <div class="muted" style="margin-top:10px">Keep this screen on while driving. Mount the phone or leave it still in the vehicle.</div>
+      </div>
+
+      <div class="card" id="liveCard">
+        <div class="muted">Live motion — last 10 s
+          <label style="float:right;cursor:pointer;color:#666"><input type="checkbox" id="soundToggle" style="vertical-align:middle"> 🔊 ding on pothole</label>
+        </div>
+        <div class="muted" id="potCount" style="color:#e74c3c;font-weight:600;min-height:14px"></div>
+        <div class="plotwrap">
+          <div class="axislabel">accel m/s²</div>
+          <canvas id="plotAccel"></canvas>
+          <div id="potholeBadge" class="pothole-badge">⚠ POTHOLE</div>
+        </div>
+        <div class="legend"><b class="dotx">●</b> ax &nbsp; <b class="doty">●</b> ay &nbsp; <b class="dotz">●</b> az &nbsp; <b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b> |a|</div>
+        <div class="plotwrap" style="margin-top:12px">
+          <div class="axislabel">gyro rad/s</div>
+          <canvas id="plotGyro"></canvas>
+        </div>
+        <div class="legend"><b class="dotx">●</b> gx &nbsp; <b class="doty">●</b> gy &nbsp; <b class="dotz">●</b> gz &nbsp; <b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b> |g|</div>
+        <div class="plotwrap" style="margin-top:12px">
+          <div class="axislabel" id="magAxis">mag μT</div>
+          <canvas id="plotMag"></canvas>
+        </div>
+        <div class="legend"><span id="magLegend"><b class="dotx">●</b> mx &nbsp; <b class="doty">●</b> my &nbsp; <b class="dotz">●</b> mz &nbsp; <b style="color:#fff;text-shadow:0 0 1px #555,0 0 2px #555">●</b> |m|</span> <span id="magNote" style="color:#999"></span></div>
+      </div>
+
+      <div class="card">
+        <table>
+          <tr><td>GPS</td><td id="gps">—</td></tr>
+          <tr><td>Samples (current batch)</td><td id="samples">0</td></tr>
+          <tr><td>Batches awaiting upload</td><td id="pending">0</td></tr>
+          <tr><td>Last upload</td><td id="lastUpload">never</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="muted">Activity</div>
+        <pre id="log"></pre>
+        <div class="muted">API: <span id="api"></span> · <a href="data/">data &amp; downloads →</a></div>
+      </div>
+
+      <div class="card">
+        <h1 style="font-size:16px;margin:0 0 4px">Get the Android app</h1>
+        <div class="muted" style="margin-bottom:8px">Notifies you when you're driving — mount your phone, tap to start, and it captures road data in the background. Minimal battery. (iOS later.)</div>
+        <a id="androidLink" class="store" href="#">▶ Android</a>
+        <div class="muted" id="appNote" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+    <script>
+      // Wire the Android button from CONFIG; show "coming soon" until published.
+      (function () {
+        var C = window.CONFIG || {};
+        var a = document.getElementById("androidLink");
+        if (C.APP_ANDROID_URL) {
+          a.href = C.APP_ANDROID_URL;
+        } else {
+          a.classList.add("disabled");
+          a.href = "#";
+          document.getElementById("appNote").textContent =
+            "App coming soon — set APP_ANDROID_URL in config.js once your APK / Play listing is live. Meanwhile, use this web collector.";
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+# RoadSense backend dependencies. Runs on SQLite + local filesystem out of the
+# box; set DATABASE_URL to a Postgres URL for production (psycopg is included so
+# Railway's default `pip install -r requirements.txt` works). Further prod swaps
+# (PostGIS, Redis/RQ, S3/R2) live in requirements-prod.txt, enabled by env.
+fastapi
+uvicorn[standard]
+numpy
+h3
+sqlalchemy
+pydantic
+pydantic-settings
+python-multipart
+httpx
+psycopg[binary]      # Postgres driver (DATABASE_URL=postgresql+psycopg://...)
+pytest

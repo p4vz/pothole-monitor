@@ -1,0 +1,7 @@
+# Production extras (in addition to requirements.txt, which already includes the
+# Postgres driver). Enabled by environment, not code: PostGIS, Redis/RQ, S3/R2.
+-r requirements.txt
+geoalchemy2          # PostGIS geometry columns + GIST index
+redis                # RQ broker
+rq                   # async worker (ROADSENSE_USE_RQ=1)
+boto3                # S3 / Cloudflare R2 object storage

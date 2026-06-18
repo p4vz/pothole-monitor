@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoadSense — data</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { margin: 0; font-family: system-ui, sans-serif; background: #f5f6f8; color: #1a1a1a; }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 20px 16px 60px; }
+      h1 { font-size: 22px; margin: 6px 0 2px; }
+      .sub { color: #666; font-size: 13px; margin-bottom: 16px; }
+      .card { background: #fff; border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.08); padding: 16px; margin-bottom: 16px; }
+      h2 { font-size: 15px; margin: 0 0 10px; }
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+      .stat { background: #f0f2f5; border-radius: 10px; padding: 10px 12px; }
+      .stat .n { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .stat .l { font-size: 12px; color: #666; }
+      button, a.btn { display: inline-block; border: 0; border-radius: 9px; background: #2a7de1; color: #fff;
+        font-size: 14px; font-weight: 600; padding: 9px 14px; margin: 4px 6px 4px 0; cursor: pointer; text-decoration: none; }
+      a.btn.alt { background: #5a6472; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; white-space: nowrap; }
+      th { color: #666; font-weight: 600; }
+      td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+      .pill { font-size: 11px; padding: 2px 7px; border-radius: 20px; background: #e7f0fb; color: #2a7de1; }
+      .pill.processed { background: #e6f7ed; color: #1e9e54; }
+      .pill.failed { background: #fdeaea; color: #d23; }
+      .pill.pending { background: #fff5e0; color: #b9770a; }
+      .muted { color: #888; font-size: 12px; }
+      a { color: #2a7de1; }
+      .scroll { overflow-x: auto; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>RoadSense data</h1>
+      <div class="sub">Overview and downloads for raw uploads and compiled road condition. <a href="/viewer">open map →</a> · <a href="/">collector →</a></div>
+
+      <div class="card">
+        <h2>Overview</h2>
+        <div class="stats" id="stats"><span class="muted">loading…</span></div>
+        <div id="bbox" class="muted" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Compiled data (road condition)</h2>
+        <a class="btn" id="dlGeojson" href="#">Download segments (GeoJSON)</a>
+        <button id="dlCsv">Download segments (CSV)</button>
+        <a class="btn alt" id="apiSeg" href="#" target="_blank">View JSON</a>
+        <button id="reprocess" style="background:#8e44ad">Rebuild from raw</button>
+        <div class="muted" id="segNote" style="margin-top:6px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Raw uploads</h2>
+        <div class="muted" style="margin-bottom:8px">The immutable archive of exactly what each device uploaded. <a class="btn alt" id="apiBatches" href="#" target="_blank" style="margin-left:6px">List JSON</a></div>
+        <div class="scroll"><table id="batches"><thead><tr>
+          <th>batch_id</th><th>device</th><th>status</th><th class="r">samples</th><th>start</th><th>raw</th>
+        </tr></thead><tbody><tr><td colspan="6" class="muted">loading…</td></tr></tbody></table></div>
+      </div>
+    </div>
+
+    <script>
+      const API = new URLSearchParams(location.search).get("api") || location.origin;
+      const $ = (id) => document.getElementById(id);
+      const fmtTime = (t) => (t ? new Date(t * 1000).toLocaleString() : "—");
+
+      function download(filename, text, type = "application/json") {
+        const blob = new Blob([text], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = filename; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function centroid(feature) {
+        const ring = feature.geometry?.coordinates?.[0] || [];
+        if (!ring.length) return [null, null];
+        let x = 0, y = 0;
+        ring.forEach(([lng, lat]) => { x += lng; y += lat; });
+        return [y / ring.length, x / ring.length]; // [lat, lng]
+      }
+
+      function toCsv(geojson) {
+        const cols = ["segment_key", "lat", "lng", "severity_class", "roughness_score",
+          "confidence", "pothole_probability", "intensity_class", "intensity_score",
+          "swerve_rate", "defect_probability", "trend", "n_passes", "n_devices", "last_seen"];
+        const rows = [cols.join(",")];
+        for (const f of geojson.features) {
+          const p = f.properties, [lat, lng] = centroid(f);
+          const vals = [p.segment_key, lat, lng, p.severity_class, p.roughness_score,
+            p.confidence, p.pothole_probability, p.intensity_class, p.intensity_score,
+            p.swerve_rate, p.defect_probability, p.trend, p.n_passes, p.n_devices, p.last_seen];
+          rows.push(vals.map((v) => (v == null ? "" : `${v}`.includes(",") ? `"${v}"` : v)).join(","));
+        }
+        return rows.join("\n");
+      }
+
+      async function load() {
+        $("apiSeg").href = `${API}/v1/segments`;
+        $("apiBatches").href = `${API}/v1/batches`;
+
+        try {
+          const s = await (await fetch(`${API}/v1/stats`)).json();
+          const cells = [
+            ["devices", s.devices], ["raw batches", s.raw_batches], ["raw samples", s.raw_samples],
+            ["observations", s.observations], ["segments", s.segments],
+          ];
+          $("stats").innerHTML = cells.map(([l, n]) =>
+            `<div class="stat"><div class="n">${n ?? 0}</div><div class="l">${l}</div></div>`).join("");
+          const st = s.batch_status || {};
+          const stText = Object.keys(st).length ? " · status " + Object.entries(st).map(([k, v]) => `${k}:${v}`).join(", ") : "";
+          const where = s.data_bbox
+            ? `data centre ≈ ${s.data_bbox.center[0].toFixed(4)}, ${s.data_bbox.center[1].toFixed(4)}`
+            : "no compiled data yet — record a trip in the collector";
+          const st2 = s.storage || {};
+          const storageNote = st2.dir
+            ? ` · storage ${st2.dir} ${st2.persisted ? "(persisted)" : "(⚠ ephemeral — set ROADSENSE_STORAGE_DIR to a volume)"}${st2.latest_blob_present === false ? ", latest raw blob MISSING" : ""}`
+            : "";
+          $("bbox").textContent = where + stText + storageNote;
+        } catch (e) {
+          $("stats").innerHTML = `<span class="muted">error reaching API (${API}): ${e.message}</span>`;
+        }
+
+        try {
+          const b = await (await fetch(`${API}/v1/batches`)).json();
+          const tb = $("batches").querySelector("tbody");
+          if (!b.batches.length) { tb.innerHTML = `<tr><td colspan="6" class="muted">no uploads yet</td></tr>`; return; }
+          tb.innerHTML = b.batches.map((x) => `<tr>
+            <td>${x.batch_id}</td>
+            <td>${(x.device_id || "").slice(0, 8)}</td>
+            <td><span class="pill ${x.status}">${x.status}</span></td>
+            <td class="r">${x.n_samples}</td>
+            <td>${fmtTime(x.t_start)}</td>
+            <td><a href="${API}${x.raw_url}">download</a></td>
+          </tr>`).join("");
+        } catch (e) {
+          $("batches").querySelector("tbody").innerHTML = `<tr><td colspan="6" class="muted">error: ${e.message}</td></tr>`;
+        }
+      }
+
+      async function fetchSegments() {
+        const res = await fetch(`${API}/v1/segments`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      }
+
+      $("dlGeojson").addEventListener("click", async (e) => {
+        e.preventDefault();
+        try {
+          const g = await fetchSegments();
+          if (!g.features.length) { $("segNote").textContent = "no segments to export yet"; return; }
+          download("segments.geojson", JSON.stringify(g, null, 2));
+        } catch (err) { $("segNote").textContent = `download failed: ${err.message}`; }
+      });
+
+      $("dlCsv").addEventListener("click", async () => {
+        try {
+          const g = await fetchSegments();
+          if (!g.features.length) { $("segNote").textContent = "no segments to export yet"; return; }
+          download("segments.csv", toCsv(g), "text/csv");
+        } catch (err) { $("segNote").textContent = `download failed: ${err.message}`; }
+      });
+
+      $("reprocess").addEventListener("click", async () => {
+        $("segNote").textContent = "rebuilding from raw…";
+        try {
+          const r = await (await fetch(`${API}/v1/reprocess`, { method: "POST" })).json();
+          $("segNote").textContent =
+            `rebuilt ${r.reprocessed}/${r.total} batches (missing raw: ${r.missing_raw}, failed: ${r.failed}).` +
+            (r.missing_raw ? " Missing raw means blobs weren't persisted — set a storage volume and re-record." : "");
+          load();
+        } catch (err) { $("segNote").textContent = `rebuild failed: ${err.message}`; }
+      });
+
+      load();
+    </script>
+  </body>
+</html>
