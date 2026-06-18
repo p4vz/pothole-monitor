@@ -140,12 +140,13 @@ function bboxAround(lat, lng, m = 25) {
   return [lng - dLng, lat - dLat, lng + dLng, lat + dLat].join(",");
 }
 
-async function uploadPhoto(file, lat, lng, segKey) {
+async function uploadPhoto(file, lat, lng, segKey, caption) {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("lat", lat);
   fd.append("lng", lng);
   if (segKey) fd.append("segment_key", segKey);
+  if (caption) fd.append("caption", caption);
   const tok = localStorage.getItem("rs_token");
   const res = await fetch(`${API}/v1/photos`, {
     method: "POST", body: fd, headers: tok ? { "X-Device-Token": tok } : {},
@@ -170,10 +171,20 @@ function pickPhoto(onPick) {
   _photoInput.click();
 }
 
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function photosHTML(photos) {
   if (!photos.length) return '<span class="muted">No photos yet.</span>';
   return '<div class="thumbs">' + photos
-    .map((p) => `<a href="${API}${p.url}" target="_blank"><img src="${API}${p.url}" loading="lazy" alt="pothole"></a>`)
+    .map((p) => {
+      const cap = p.caption
+        ? `<figcaption class="cap" title="${escapeHTML(p.caption)}">${escapeHTML(p.caption)}</figcaption>`
+        : "";
+      return `<figure class="thumb"><a href="${API}${p.url}" target="_blank"><img src="${API}${p.url}" loading="lazy" alt="${escapeHTML(p.caption || "pothole")}"></a>${cap}</figure>`;
+    })
     .join("") + "</div>";
 }
 
@@ -185,10 +196,13 @@ async function renderPhotos(elId, opts) {
   const query = opts.segKey
     ? `segment_key=${encodeURIComponent(opts.segKey)}`
     : `bbox=${bboxAround(opts.lat, opts.lng)}`;
-  el.innerHTML = '<button class="photo-btn">📷 Add photo</button>' +
-    '<span class="up-status muted"></span><div class="thumbs-wrap muted">loading…</div>';
+  el.innerHTML =
+    '<div class="photo-add"><input class="cap-input" type="text" maxlength="120" placeholder="caption (optional)">' +
+    '<button class="photo-btn">📷 Add photo</button><span class="up-status muted"></span></div>' +
+    '<div class="thumbs-wrap muted">loading…</div>';
   const wrap = el.querySelector(".thumbs-wrap");
   const status = el.querySelector(".up-status");
+  const capInput = el.querySelector(".cap-input");
   async function reload() {
     try {
       const { photos } = await (await fetch(`${API}/v1/photos?${query}`)).json();
@@ -198,8 +212,9 @@ async function renderPhotos(elId, opts) {
   el.querySelector(".photo-btn").onclick = () => pickPhoto(async (file) => {
     status.textContent = " uploading…";
     try {
-      await uploadPhoto(file, opts.lat, opts.lng, opts.segKey);
+      await uploadPhoto(file, opts.lat, opts.lng, opts.segKey, capInput.value.trim());
       status.textContent = " ✓ added";
+      capInput.value = "";
       reload();
     } catch (e) { status.textContent = " ✗ " + e.message; }
   });
